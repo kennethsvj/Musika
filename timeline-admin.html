@@ -94,6 +94,19 @@
   }
   .track-row img { width: 40px; height: 40px; border-radius: 4px; }
   .track-row .year { font-weight: 700; color: var(--accent-2); text-align: center; }
+  .track-row .year-input {
+    width: 60px; padding: 4px 6px; text-align: center;
+    background: transparent; border: 1px solid transparent;
+    color: var(--accent-2); font-weight: 700; font-size: 13px;
+    border-radius: 4px; font-family: inherit;
+    transition: all 0.15s;
+  }
+  .track-row .year-input:hover { border-color: var(--border); background: rgba(0,0,0,0.2); }
+  .track-row .year-input:focus { border-color: var(--accent); background: rgba(0,0,0,0.3); outline: none; color: var(--text); }
+  /* Hide spinner arrows */
+  .track-row .year-input::-webkit-outer-spin-button,
+  .track-row .year-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .track-row .year-input { -moz-appearance: textfield; }
   .track-row button { padding: 4px 8px; font-size: 11px; background: transparent; border: 1px solid var(--border); color: var(--muted); }
   .track-row button:hover { color: var(--accent); border-color: var(--accent); box-shadow: none; }
 
@@ -740,10 +753,26 @@ function renderTracks() {
         <div style="font-weight:600;">${escapeHtml(t.title)}</div>
         <div style="color:var(--muted); font-size:12px;">${escapeHtml(t.artist)}</div>
       </div>
-      <div class="year">${t.year}</div>
+      <input type="number" class="year-input" value="${t.year}" min="1900" max="2100"
+             data-track-id="${t.id}" onchange="updateYear('${t.id}', this.value)"
+             title="Klik for at rette årstal">
       <button onclick="removeTrack('${t.id}')">Fjern</button>
     </div>
   `).join('');
+}
+
+async function updateYear(trackId, newYear) {
+  const year = parseInt(newYear, 10);
+  if (!year || year < 1900 || year > 2100) {
+    toast('Ugyldigt årstal', 'error');
+    return;
+  }
+  const { error } = await supa.from('tracks').update({ year }).eq('id', trackId);
+  if (error) return toast(error.message, 'error');
+  // Update local copy
+  const t = tracks.find(x => x.id === trackId);
+  if (t) t.year = year;
+  toast(`✓ Årstal ændret til ${year}`);
 }
 
 async function removeTrack(trackId) {
