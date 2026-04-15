@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Musika – Host</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0f; --panel: #15151f; --panel-light: #1f1f2e; --border: #2a2a3a;
+    --text: #e8e8f0; --muted: #8080a0; --accent: #ff3864; --accent-2: #00d4ff;
+    --success: #00d97e; --spotify: #1DB954;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    background: var(--bg);
+    background-image: radial-gradient(circle at 20% 0%, rgba(255,56,100,0.08) 0%, transparent 50%),
+                      radial-gradient(circle at 80% 100%, rgba(0,212,255,0.06) 0%, transparent 50%);
+    color: var(--text); min-height: 100vh; padding: 16px;
+  }
+  .app { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 4px; }
+  h1 span { background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+  input, select { width: 100%; background: #07070d; border: 1px solid var(--border); color: var(--text); padding: 12px 14px; border-radius: 10px; font-size: 15px; outline: none; font-family: inherit; }
+  input:focus, select:focus { border-color: var(--accent); }
+  button {
+    background: linear-gradient(135deg, var(--accent) 0%, #e02850 100%);
+    color: white; border: none; padding: 14px 22px; border-radius: 10px;
+    font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit;
+    width: 100%;
+  }
+  button:disabled { opacity: 0.5; }
+  button.secondary { background: var(--panel-light); border: 1px solid var(--border); color: var(--text); }
+  button.spotify { background: var(--spotify); }
+  button.success { background: var(--success); color: black; }
+
+  .hidden { display: none !important; }
+  .toast { position: fixed; bottom: 20px; left: 16px; right: 16px; background: var(--success); color: black; padding: 14px 20px; border-radius: 10px; font-weight: 700; opacity: 0; transition: opacity 0.2s; z-index: 1000; text-align: center; }
+  .toast.show { opacity: 1; }
+  .toast.error { background: var(--accent); color: white; }
+
+  /* Lobby */
+  .game-code { font-size: 56px; font-weight: 900; letter-spacing: 8px; text-align: center; color: var(--accent-2); margin: 14px 0; font-variant-numeric: tabular-nums; }
+  .qr-display { background: white; padding: 16px; border-radius: 12px; display: flex; justify-content: center; margin: 14px auto; max-width: 240px; }
+  .qr-display canvas, .qr-display img { display: block !important; }
+  .player-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .player-row { background: var(--panel-light); padding: 10px 14px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+  .player-name { font-weight: 600; }
+  .player-score { color: var(--accent-2); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* Active game */
+  .now-playing { background: linear-gradient(135deg, #1a1a2e 0%, #2a1a3e 100%); padding: 22px; border-radius: 14px; text-align: center; margin-bottom: 14px; }
+  .now-playing .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; }
+  .now-playing .turn-name { font-size: 22px; font-weight: 800; color: var(--accent-2); }
+  .scanner-wrap { background: black; border-radius: 14px; overflow: hidden; margin-bottom: 14px; }
+  #scanner-region { width: 100%; }
+  .controls-row { display: flex; gap: 8px; }
+  .controls-row button { flex: 1; }
+
+  /* Card reveal */
+  .reveal-card { background: linear-gradient(135deg, #6b2d8f 0%, #1a0b3d 100%); padding: 22px; border-radius: 14px; text-align: center; color: white; margin-bottom: 14px; }
+  .reveal-card .artist { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .reveal-card .year { font-size: 56px; font-weight: 900; letter-spacing: -2px; line-height: 1; margin: 8px 0; }
+  .reveal-card .title { font-size: 14px; font-style: italic; opacity: 0.9; }
+
+  .scoring-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .scoring-buttons button { padding: 16px 12px; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ============ AUTH SCREEN ============ -->
+<div id="auth-screen">
+  <h1>🎵 <span>Musika</span> Host</h1>
+  <p class="subtitle">Log ind for at oprette spil</p>
+  <div class="panel" id="config-panel">
+    <label>Supabase URL</label>
+    <input id="cfg-url" placeholder="https://xxxxx.supabase.co">
+    <label style="margin-top:10px;">Supabase anon key</label>
+    <input id="cfg-key" placeholder="eyJhbGc...">
+    <button style="margin-top:14px;" onclick="saveConfig()">Gem</button>
+  </div>
+  <div class="panel hidden" id="login-panel">
+    <label>Email</label>
+    <input id="email" type="email">
+    <label style="margin-top:10px;">Password</label>
+    <input id="password" type="password">
+    <button style="margin-top:14px;" onclick="login()">Log ind</button>
+    <p style="font-size:12px; color:var(--muted); margin-top:14px;">
+      Brug samme konto som admin-siden. <a href="#" onclick="resetConfig();return false;" style="color:var(--accent-2);">Skift konfig</a>
+    </p>
+  </div>
+</div>
+
+<!-- ============ CREATE GAME ============ -->
+<div id="create-screen" class="hidden">
+  <h1>🎵 <span>Musika</span></h1>
+  <p class="subtitle">Opret nyt spil</p>
+
+  <div class="panel">
+    <label>Playliste</label>
+    <select id="playlist-select"></select>
+    <label style="margin-top:14px;">Spiltilstand</label>
+    <select id="mode-select">
+      <option value="classic">Classic – kun årstal (1 point)</option>
+      <option value="advanced">Advanced – årstal + artist (op til 2 point)</option>
+      <option value="expert">Expert – årstal + artist + titel (op til 3 point)</option>
+      <option value="mixed">Mixed – spilleren satser 1, 2 eller 3 point</option>
+    </select>
+    <label style="margin-top:14px;">Vinderpoint</label>
+    <input id="win-points" type="number" value="15" min="5" max="50">
+    <button style="margin-top:18px;" onclick="createGame()">Opret spil</button>
+    <button class="secondary" style="margin-top:8px;" onclick="logout()">Log ud</button>
+  </div>
+</div>
+
+<!-- ============ LOBBY ============ -->
+<div id="lobby-screen" class="hidden">
+  <h1>🎵 <span>Musika</span></h1>
+  <p class="subtitle">Spillere joiner ved at scanne QR'en eller indtaste koden på <strong id="join-url-display"></strong></p>
+
+  <div class="panel">
+    <div style="text-align:center; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:2px;">Spil-kode</div>
+    <div class="game-code" id="game-code"></div>
+    <div class="qr-display"><div id="join-qr"></div></div>
+  </div>
+
+  <div class="panel">
+    <h2 style="font-size:16px; margin-bottom:6px;">Spillere (<span id="player-count">0</span>)</h2>
+    <div class="player-list" id="player-list"></div>
+    <button style="margin-top:14px;" onclick="startGame()" id="start-btn" disabled>Start spil</button>
+    <button class="secondary" style="margin-top:8px;" onclick="cancelGame()">Annullér</button>
+  </div>
+</div>
+
+<!-- ============ ACTIVE GAME ============ -->
+<div id="game-screen" class="hidden">
+  <h1>🎵 <span>Musika</span></h1>
+
+  <div class="now-playing">
+    <div class="label">Det er nu</div>
+    <div class="turn-name" id="active-player-name">—</div>
+  </div>
+
+  <div id="scan-section">
+    <div class="panel">
+      <h2 style="font-size:14px; margin-bottom:10px;">Scan kort</h2>
+      <div class="scanner-wrap"><div id="scanner-region"></div></div>
+      <button class="secondary" onclick="stopScanner()">Stop kamera</button>
+    </div>
+  </div>
+
+  <div id="reveal-section" class="hidden">
+    <div class="reveal-card">
+      <div class="label" style="font-size:11px; color:rgba(255,255,255,0.6); text-transform:uppercase; letter-spacing:2px; margin-bottom:8px;">Sang afspilles</div>
+      <div class="artist" id="reveal-artist"></div>
+      <div class="year" id="reveal-year"></div>
+      <div class="title" id="reveal-title"></div>
+    </div>
+
+    <div class="panel">
+      <h2 style="font-size:14px; margin-bottom:12px;">Vurdér <span id="scoring-player"></span>'s svar</h2>
+      <div id="scoring-info" style="font-size:13px; color:var(--muted); margin-bottom:12px;"></div>
+      <div class="scoring-buttons" id="scoring-buttons"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 style="font-size:14px; margin-bottom:10px;">Stilling</h2>
+    <div class="player-list" id="game-player-list"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+</div>
+
+<script>
+// ============================================================
+// CONFIG
+// ============================================================
+let supa = null, currentUser = null, currentGame = null, players = [], spotifyToken = null, scanner = null;
+
+function loadConfig() {
+  const url = localStorage.getItem('tl_supa_url');
+  const key = localStorage.getItem('tl_supa_key');
+  if (url && key) {
+    supa = window.supabase.createClient(url, key);
+    document.getElementById('config-panel').classList.add('hidden');
+    document.getElementById('login-panel').classList.remove('hidden');
+    checkSession();
+  }
+}
+function saveConfig() {
+  const url = document.getElementById('cfg-url').value.trim();
+  const key = document.getElementById('cfg-key').value.trim();
+  if (!url || !key) return toast('Udfyld begge', 'error');
+  localStorage.setItem('tl_supa_url', url);
+  localStorage.setItem('tl_supa_key', key);
+  loadConfig();
+}
+function resetConfig() {
+  localStorage.removeItem('tl_supa_url');
+  localStorage.removeItem('tl_supa_key');
+  location.reload();
+}
+
+// ============================================================
+// AUTH
+// ============================================================
+async function checkSession() {
+  const { data: { session } } = await supa.auth.getSession();
+  if (session) { currentUser = session.user; await showCreate(); }
+}
+async function login() {
+  const { data, error } = await supa.auth.signInWithPassword({
+    email: document.getElementById('email').value,
+    password: document.getElementById('password').value,
+  });
+  if (error) return toast(error.message, 'error');
+  currentUser = data.user;
+  await showCreate();
+}
+async function logout() { await supa.auth.signOut(); location.reload(); }
+
+// ============================================================
+// CREATE SCREEN
+// ============================================================
+async function showCreate() {
+  show('create-screen');
+  // Load playlists
+  const { data } = await supa.from('playlists').select('*').order('name');
+  const sel = document.getElementById('playlist-select');
+  sel.innerHTML = (data || []).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  // Load Spotify token (must be set up via admin first)
+  const { data: tok } = await supa.from('spotify_tokens').select('*').eq('user_id', currentUser.id).maybeSingle();
+  if (tok) spotifyToken = { ...tok, expires_at: new Date(tok.expires_at) };
+  else toast('Husk at forbinde Spotify via admin-siden først', 'error');
+}
+
+async function createGame() {
+  const playlist_id = document.getElementById('playlist-select').value;
+  const mode = document.getElementById('mode-select').value;
+  const win_points = parseInt(document.getElementById('win-points').value, 10);
+  if (!playlist_id) return toast('Vælg en playliste', 'error');
+
+  const code = generateCode();
+  const { data, error } = await supa.from('games').insert({
+    code, host_id: currentUser.id, playlist_id, mode, win_points, status: 'lobby'
+  }).select().single();
+  if (error) return toast(error.message, 'error');
+
+  currentGame = data;
+  await showLobby();
+}
+
+function generateCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // skip ambiguous chars
+  return Array.from({length: 4}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
+// ============================================================
+// LOBBY
+// ============================================================
+async function showLobby() {
+  show('lobby-screen');
+  document.getElementById('game-code').textContent = currentGame.code;
+  // Build join URL — relative to current location
+  const base = window.location.href.replace(/\/[^\/]*$/, '');
+  const joinUrl = `${base}/play.html?code=${currentGame.code}`;
+  document.getElementById('join-url-display').textContent = base.replace(/^https?:\/\//, '') + '/play';
+  // QR code
+  const qr = document.getElementById('join-qr');
+  qr.innerHTML = '';
+  new QRCode(qr, { text: joinUrl, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+
+  await loadPlayers();
+  subscribeToPlayers();
+}
+
+async function loadPlayers() {
+  const { data } = await supa.from('players').select('*').eq('game_id', currentGame.id).order('joined_at');
+  players = data || [];
+  renderPlayers();
+}
+
+function renderPlayers() {
+  document.getElementById('player-count').textContent = players.length;
+  document.getElementById('player-list').innerHTML = players.length === 0
+    ? '<div style="color:var(--muted); text-align:center; padding:20px; font-size:13px;">Venter på spillere...</div>'
+    : players.map(p => `<div class="player-row"><span class="player-name">${escapeHtml(p.name)}</span></div>`).join('');
+  document.getElementById('start-btn').disabled = players.length < 2;
+}
+
+let playersChannel = null;
+function subscribeToPlayers() {
+  if (playersChannel) supa.removeChannel(playersChannel);
+  playersChannel = supa.channel(`game-${currentGame.id}-players`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `game_id=eq.${currentGame.id}` },
+      () => loadPlayers())
+    .subscribe();
+}
+
+async function cancelGame() {
+  if (!confirm('Annullér spillet?')) return;
+  await supa.from('games').delete().eq('id', currentGame.id);
+  currentGame = null;
+  if (playersChannel) supa.removeChannel(playersChannel);
+  await showCreate();
+}
+
+// ============================================================
+// START GAME → ACTIVE
+// ============================================================
+async function startGame() {
+  if (players.length < 2) return toast('Mindst 2 spillere skal joine', 'error');
+  // Pick first player (joined first)
+  const firstPlayer = players[0];
+  await supa.from('games').update({
+    status: 'playing',
+    current_player_id: firstPlayer.id,
+  }).eq('id', currentGame.id);
+  currentGame.status = 'playing';
+  currentGame.current_player_id = firstPlayer.id;
+  await showGame();
+}
+
+// ============================================================
+// ACTIVE GAME
+// ============================================================
+let currentCard = null, currentTrack = null;
+
+async function showGame() {
+  show('game-screen');
+  await loadPlayers();
+  renderGameStanding();
+  startScanner();
+
+  // Subscribe to game + players changes
+  if (playersChannel) supa.removeChannel(playersChannel);
+  playersChannel = supa.channel(`game-${currentGame.id}-active`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `game_id=eq.${currentGame.id}` },
+      async () => { await loadPlayers(); renderGameStanding(); checkWinner(); })
+    .subscribe();
+}
+
+function renderGameStanding() {
+  const active = players.find(p => p.id === currentGame.current_player_id);
+  document.getElementById('active-player-name').textContent = active ? active.name : '—';
+
+  const sorted = [...players].sort((a,b) => b.score - a.score);
+  document.getElementById('game-player-list').innerHTML = sorted.map(p => {
+    const isActive = p.id === currentGame.current_player_id;
+    return `<div class="player-row" style="${isActive ? 'border:1px solid var(--accent-2);' : ''}">
+      <span class="player-name">${isActive ? '▶ ' : ''}${escapeHtml(p.name)}</span>
+      <span class="player-score">${p.score}</span>
+    </div>`;
+  }).join('');
+}
+
+function checkWinner() {
+  const winner = players.find(p => p.score >= currentGame.win_points);
+  if (winner && currentGame.status !== 'finished') {
+    supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
+    setTimeout(() => alert(`🏆 ${winner.name} vinder med ${winner.score} point!`), 100);
+  }
+}
+
+// ============================================================
+// SCANNER
+// ============================================================
+function startScanner() {
+  document.getElementById('scan-section').classList.remove('hidden');
+  document.getElementById('reveal-section').classList.add('hidden');
+  if (scanner) return;
+  scanner = new Html5Qrcode('scanner-region');
+  scanner.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 220, height: 220 } },
+    onScanned,
+    () => {} // ignore scan failures
+  ).catch(err => toast('Kunne ikke starte kamera: ' + err, 'error'));
+}
+
+async function stopScanner() {
+  if (!scanner) return;
+  try { await scanner.stop(); scanner.clear(); } catch(e) {}
+  scanner = null;
+}
+
+async function onScanned(decoded) {
+  // Decoded should be a URL like https://kennethsvj.github.io/Musika/c/CARDID
+  // Extract card ID
+  const m = decoded.match(/\/c\/([a-z0-9]+)/i) || decoded.match(/track\/([a-zA-Z0-9]+)/);
+  let cardId = m ? m[1] : decoded;
+
+  await stopScanner();
+
+  // Look up card
+  const { data: card } = await supa.from('cards').select('*, track:tracks(*)').eq('id', cardId).maybeSingle();
+  if (!card) {
+    // Maybe it's a Spotify ID (old card format) — look up by spotify_id
+    const { data: track } = await supa.from('tracks').select('*').eq('spotify_id', cardId).maybeSingle();
+    if (!track) { toast('Kort ikke fundet', 'error'); startScanner(); return; }
+    currentCard = { id: 'legacy-' + cardId, track };
+    currentTrack = track;
+  } else {
+    currentCard = card;
+    currentTrack = card.track;
+  }
+
+  await playTrack(currentTrack.spotify_id);
+  showRevealAndScoring();
+}
+
+// ============================================================
+// SPOTIFY PLAYBACK (host's Premium device)
+// ============================================================
+async function getValidSpotifyToken() {
+  if (!spotifyToken) return null;
+  if (spotifyToken.expires_at.getTime() - Date.now() < 60_000) {
+    const { data, error } = await supa.functions.invoke('spotify-auth', {
+      body: { action: 'refresh', refresh_token: spotifyToken.refresh_token }
+    });
+    if (error || data.error) return null;
+    const expires_at = new Date(Date.now() + (data.expires_in * 1000)).toISOString();
+    const newRecord = {
+      user_id: currentUser.id,
+      access_token: data.access_token,
+      refresh_token: data.refresh_token || spotifyToken.refresh_token,
+      expires_at, scope: data.scope, updated_at: new Date().toISOString(),
+    };
+    await supa.from('spotify_tokens').upsert(newRecord);
+    spotifyToken = { ...newRecord, expires_at: new Date(expires_at) };
+  }
+  return spotifyToken.access_token;
+}
+
+async function playTrack(spotifyId) {
+  const token = await getValidSpotifyToken();
+  if (!token) { toast('Ingen Spotify-forbindelse', 'error'); return; }
+
+  // Find an active device
+  const devRes = await fetch('https://api.spotify.com/v1/me/player/devices', {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const devices = (await devRes.json()).devices || [];
+  if (devices.length === 0) {
+    toast('Ingen Spotify-enhed aktiv. Åbn Spotify-app og start en sang først.', 'error');
+    return;
+  }
+  const device = devices.find(d => d.is_active) || devices[0];
+
+  const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${device.id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uris: [`spotify:track:${spotifyId}`] }),
+  });
+  if (!r.ok) {
+    const err = await r.text();
+    toast('Afspilning fejlede: ' + err.slice(0, 100), 'error');
+  }
+}
+
+async function pauseTrack() {
+  const token = await getValidSpotifyToken();
+  if (!token) return;
+  await fetch('https://api.spotify.com/v1/me/player/pause', {
+    method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+// ============================================================
+// REVEAL & SCORING (Phase B placeholder — full scoring in Phase C)
+// ============================================================
+function showRevealAndScoring() {
+  document.getElementById('scan-section').classList.add('hidden');
+  document.getElementById('reveal-section').classList.remove('hidden');
+
+  document.getElementById('reveal-artist').textContent = currentTrack.artist;
+  document.getElementById('reveal-year').textContent = currentTrack.year;
+  document.getElementById('reveal-title').textContent = currentTrack.title;
+
+  const active = players.find(p => p.id === currentGame.current_player_id);
+  document.getElementById('scoring-player').textContent = active ? active.name : '';
+  document.getElementById('scoring-info').textContent = 'Tildel point manuelt for nu (fuldt scoring-system kommer i fase C):';
+
+  const buttons = document.getElementById('scoring-buttons');
+  buttons.innerHTML = `
+    <button class="success" onclick="awardPoints(0)">0 point</button>
+    <button class="success" onclick="awardPoints(1)">1 point</button>
+    <button class="success" onclick="awardPoints(2)">2 point</button>
+    <button class="success" onclick="awardPoints(3)">3 point</button>
+  `;
+}
+
+async function awardPoints(points) {
+  const active = players.find(p => p.id === currentGame.current_player_id);
+  if (!active) return;
+  await pauseTrack();
+  await supa.from('players').update({ score: active.score + points }).eq('id', active.id);
+  await nextTurn();
+}
+
+async function nextTurn() {
+  const idx = players.findIndex(p => p.id === currentGame.current_player_id);
+  const next = players[(idx + 1) % players.length];
+  await supa.from('games').update({ current_player_id: next.id, current_card_id: null }).eq('id', currentGame.id);
+  currentGame.current_player_id = next.id;
+  await loadPlayers();
+  renderGameStanding();
+  startScanner();
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function show(id) {
+  ['auth-screen','create-screen','lobby-screen','game-screen'].forEach(s =>
+    document.getElementById(s).classList.toggle('hidden', s !== id));
+}
+function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type === 'error' ? ' error' : '');
+  setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+loadConfig();
+</script>
+</body>
+</html>

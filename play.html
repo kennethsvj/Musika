@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Musika – Spil</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #0a0a0f; --panel: #15151f; --panel-light: #1f1f2e; --border: #2a2a3a;
+    --text: #e8e8f0; --muted: #8080a0; --accent: #ff3864; --accent-2: #00d4ff; --success: #00d97e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    background: var(--bg);
+    background-image: radial-gradient(circle at 20% 0%, rgba(255,56,100,0.08) 0%, transparent 50%);
+    color: var(--text); min-height: 100vh; padding: 16px;
+  }
+  .app { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 4px; }
+  h1 span { background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+  input { width: 100%; background: #07070d; border: 1px solid var(--border); color: var(--text); padding: 12px 14px; border-radius: 10px; font-size: 16px; outline: none; font-family: inherit; }
+  input:focus { border-color: var(--accent); }
+  .code-input { font-size: 24px; text-align: center; letter-spacing: 6px; font-weight: 800; text-transform: uppercase; }
+  button {
+    background: linear-gradient(135deg, var(--accent) 0%, #e02850 100%);
+    color: white; border: none; padding: 14px 22px; border-radius: 10px;
+    font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit; width: 100%;
+  }
+  button:disabled { opacity: 0.5; }
+  button.secondary { background: var(--panel-light); border: 1px solid var(--border); color: var(--text); }
+  .hidden { display: none !important; }
+
+  .toast { position: fixed; bottom: 20px; left: 16px; right: 16px; background: var(--success); color: black; padding: 14px 20px; border-radius: 10px; font-weight: 700; opacity: 0; transition: opacity 0.2s; z-index: 1000; text-align: center; }
+  .toast.show { opacity: 1; }
+  .toast.error { background: var(--accent); color: white; }
+
+  .your-card { background: linear-gradient(135deg, var(--accent) 0%, #e02850 100%); padding: 18px; border-radius: 14px; text-align: center; margin-bottom: 14px; }
+  .your-card .label { font-size: 11px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 2px; }
+  .your-card .name { font-size: 24px; font-weight: 800; margin-top: 4px; }
+  .your-card .score { font-size: 48px; font-weight: 900; line-height: 1; margin-top: 8px; font-variant-numeric: tabular-nums; }
+
+  .turn-banner { background: var(--accent-2); color: black; padding: 14px; border-radius: 10px; text-align: center; font-weight: 800; font-size: 16px; margin-bottom: 14px; }
+  .turn-banner.waiting { background: var(--panel-light); color: var(--muted); font-weight: 600; }
+
+  .player-row { background: var(--panel-light); padding: 10px 14px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .player-row.me { border: 1px solid var(--accent); }
+  .player-row.active { border: 1px solid var(--accent-2); }
+  .player-name { font-weight: 600; }
+  .player-score { color: var(--accent-2); font-weight: 700; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ============ JOIN SCREEN ============ -->
+<div id="join-screen">
+  <h1>🎵 <span>Musika</span></h1>
+  <p class="subtitle">Indtast spil-kode for at joine</p>
+
+  <div class="panel" id="config-panel">
+    <label>Supabase URL</label>
+    <input id="cfg-url" placeholder="https://xxxxx.supabase.co">
+    <label style="margin-top:10px;">Supabase anon key</label>
+    <input id="cfg-key" placeholder="eyJhbGc...">
+    <button style="margin-top:14px;" onclick="saveConfig()">Gem</button>
+  </div>
+
+  <div class="panel hidden" id="join-panel">
+    <label>Spil-kode</label>
+    <input id="game-code-input" class="code-input" placeholder="ABCD" maxlength="4" autocapitalize="characters">
+    <label style="margin-top:14px;">Dit navn</label>
+    <input id="player-name" placeholder="fx Anna">
+    <button style="margin-top:14px;" onclick="joinGame()">Join spil</button>
+  </div>
+</div>
+
+<!-- ============ LOBBY (waiting for host to start) ============ -->
+<div id="lobby-screen" class="hidden">
+  <h1>🎵 <span>Musika</span></h1>
+  <div class="your-card">
+    <div class="label">Du er joinet som</div>
+    <div class="name" id="lobby-my-name"></div>
+  </div>
+  <div class="panel">
+    <h2 style="font-size:16px; margin-bottom:10px;">Venter på at host starter spillet...</h2>
+    <div id="lobby-players"></div>
+  </div>
+</div>
+
+<!-- ============ GAME ============ -->
+<div id="game-screen" class="hidden">
+  <h1>🎵 <span>Musika</span></h1>
+
+  <div class="your-card">
+    <div class="label">Din score</div>
+    <div class="score" id="my-score">0</div>
+  </div>
+
+  <div id="turn-banner" class="turn-banner waiting"></div>
+
+  <div class="panel">
+    <h2 style="font-size:14px; margin-bottom:10px;">Stilling</h2>
+    <div id="game-players"></div>
+  </div>
+
+  <div class="panel" style="background:rgba(0,212,255,0.05); border-color:var(--accent-2);">
+    <h2 style="font-size:13px; margin-bottom:8px; color:var(--accent-2);">📋 Hvordan spilles</h2>
+    <p style="font-size:13px; line-height:1.5; color:var(--muted);">
+      Når det er din tur scanner host et kort. Sangen afspilles via højttalere. Du skal placere kortet i din mentale tidslinje (eller på bordet) og — afhængigt af spiltilstand — gætte artist og titel. Host vurderer dit svar og tildeler point.
+    </p>
+  </div>
+</div>
+
+<!-- ============ FINISHED ============ -->
+<div id="finished-screen" class="hidden">
+  <h1>🏆 <span>Spillet er slut!</span></h1>
+  <div class="panel">
+    <div id="winner-display"></div>
+    <h2 style="font-size:14px; margin: 20px 0 10px;">Slutstilling</h2>
+    <div id="final-players"></div>
+    <button style="margin-top:20px;" onclick="location.reload()">Spil igen</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+</div>
+
+<script>
+let supa = null, currentGame = null, currentPlayer = null, players = [];
+
+// ============================================================
+// CONFIG (same pattern as admin/host)
+// ============================================================
+function loadConfig() {
+  const url = localStorage.getItem('tl_supa_url');
+  const key = localStorage.getItem('tl_supa_key');
+  if (url && key) {
+    supa = window.supabase.createClient(url, key);
+    document.getElementById('config-panel').classList.add('hidden');
+    document.getElementById('join-panel').classList.remove('hidden');
+    // Auto-fill code from URL ?code=ABCD
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('code')) document.getElementById('game-code-input').value = params.get('code').toUpperCase();
+  }
+}
+function saveConfig() {
+  const url = document.getElementById('cfg-url').value.trim();
+  const key = document.getElementById('cfg-key').value.trim();
+  if (!url || !key) return toast('Udfyld begge', 'error');
+  localStorage.setItem('tl_supa_url', url);
+  localStorage.setItem('tl_supa_key', key);
+  loadConfig();
+}
+
+// ============================================================
+// JOIN
+// ============================================================
+async function joinGame() {
+  const code = document.getElementById('game-code-input').value.trim().toUpperCase();
+  const name = document.getElementById('player-name').value.trim();
+  if (!code || code.length !== 4) return toast('Ugyldig kode', 'error');
+  if (!name) return toast('Indtast navn', 'error');
+
+  const { data: game } = await supa.from('games').select('*').eq('code', code).maybeSingle();
+  if (!game) return toast('Spil ikke fundet', 'error');
+  if (game.status === 'finished') return toast('Spillet er slut', 'error');
+
+  const { data: player, error } = await supa.from('players').insert({
+    game_id: game.id, name,
+  }).select().single();
+  if (error) return toast(error.message, 'error');
+
+  currentGame = game;
+  currentPlayer = player;
+  // Save in sessionStorage so reload doesn't lose state
+  sessionStorage.setItem('musika_player', JSON.stringify({ game_id: game.id, player_id: player.id }));
+
+  await onJoined();
+}
+
+async function onJoined() {
+  if (currentGame.status === 'lobby') showLobby();
+  else if (currentGame.status === 'playing') showGame();
+  else showFinished();
+
+  await loadPlayers();
+  subscribeToGame();
+}
+
+// ============================================================
+// LOBBY
+// ============================================================
+function showLobby() {
+  show('lobby-screen');
+  document.getElementById('lobby-my-name').textContent = currentPlayer.name;
+}
+
+function renderLobbyPlayers() {
+  document.getElementById('lobby-players').innerHTML = players.map(p =>
+    `<div class="player-row ${p.id === currentPlayer.id ? 'me' : ''}">
+      <span class="player-name">${escapeHtml(p.name)}${p.id === currentPlayer.id ? ' (dig)' : ''}</span>
+    </div>`).join('');
+}
+
+// ============================================================
+// GAME
+// ============================================================
+function showGame() {
+  show('game-screen');
+  renderGame();
+}
+
+function renderGame() {
+  const me = players.find(p => p.id === currentPlayer.id);
+  if (me) document.getElementById('my-score').textContent = me.score;
+
+  const isMyTurn = currentGame.current_player_id === currentPlayer.id;
+  const banner = document.getElementById('turn-banner');
+  if (isMyTurn) {
+    banner.className = 'turn-banner';
+    banner.textContent = '🎯 Det er DIN tur';
+  } else {
+    const active = players.find(p => p.id === currentGame.current_player_id);
+    banner.className = 'turn-banner waiting';
+    banner.textContent = active ? `Venter på ${active.name}` : 'Venter...';
+  }
+
+  const sorted = [...players].sort((a,b) => b.score - a.score);
+  document.getElementById('game-players').innerHTML = sorted.map(p => {
+    const classes = [];
+    if (p.id === currentPlayer.id) classes.push('me');
+    if (p.id === currentGame.current_player_id) classes.push('active');
+    return `<div class="player-row ${classes.join(' ')}">
+      <span class="player-name">${p.id === currentGame.current_player_id ? '▶ ' : ''}${escapeHtml(p.name)}${p.id === currentPlayer.id ? ' (dig)' : ''}</span>
+      <span class="player-score">${p.score}</span>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// FINISHED
+// ============================================================
+function showFinished() {
+  show('finished-screen');
+  const sorted = [...players].sort((a,b) => b.score - a.score);
+  const winner = sorted[0];
+  document.getElementById('winner-display').innerHTML = winner
+    ? `<div style="text-align:center; font-size:22px; font-weight:800; padding:20px;">🏆 ${escapeHtml(winner.name)} vandt med ${winner.score} point!</div>`
+    : '';
+  document.getElementById('final-players').innerHTML = sorted.map((p, i) =>
+    `<div class="player-row ${p.id === currentPlayer.id ? 'me' : ''}">
+      <span class="player-name">${i+1}. ${escapeHtml(p.name)}${p.id === currentPlayer.id ? ' (dig)' : ''}</span>
+      <span class="player-score">${p.score}</span>
+    </div>`).join('');
+}
+
+// ============================================================
+// REALTIME
+// ============================================================
+async function loadPlayers() {
+  const { data } = await supa.from('players').select('*').eq('game_id', currentGame.id).order('joined_at');
+  players = data || [];
+  if (currentGame.status === 'lobby') renderLobbyPlayers();
+  else if (currentGame.status === 'playing') renderGame();
+  else if (currentGame.status === 'finished') showFinished();
+}
+
+let gameChannel = null;
+function subscribeToGame() {
+  if (gameChannel) supa.removeChannel(gameChannel);
+  gameChannel = supa.channel(`game-${currentGame.id}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `game_id=eq.${currentGame.id}` },
+      () => loadPlayers())
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${currentGame.id}` },
+      async (payload) => {
+        const oldStatus = currentGame.status;
+        currentGame = payload.new;
+        if (oldStatus !== currentGame.status) {
+          // Status changed → switch screen
+          if (currentGame.status === 'playing') showGame();
+          else if (currentGame.status === 'finished') showFinished();
+        } else {
+          renderGame();
+        }
+      })
+    .subscribe();
+}
+
+// ============================================================
+// SESSION RESTORE (if user reloads page)
+// ============================================================
+async function tryRestoreSession() {
+  const saved = sessionStorage.getItem('musika_player');
+  if (!saved) return false;
+  try {
+    const { game_id, player_id } = JSON.parse(saved);
+    const { data: game } = await supa.from('games').select('*').eq('id', game_id).maybeSingle();
+    const { data: player } = await supa.from('players').select('*').eq('id', player_id).maybeSingle();
+    if (!game || !player) { sessionStorage.removeItem('musika_player'); return false; }
+    currentGame = game; currentPlayer = player;
+    await onJoined();
+    return true;
+  } catch (e) { return false; }
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function show(id) {
+  ['join-screen','lobby-screen','game-screen','finished-screen'].forEach(s =>
+    document.getElementById(s).classList.toggle('hidden', s !== id));
+}
+function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type === 'error' ? ' error' : '');
+  setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+// Init
+loadConfig();
+if (supa) tryRestoreSession();
+</script>
+</body>
+</html>
