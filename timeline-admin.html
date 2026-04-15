@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timeline Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --panel: #15151f;
+    --panel-light: #1f1f2e;
+    --border: #2a2a3a;
+    --text: #e8e8f0;
+    --muted: #8080a0;
+    --accent: #ff3864;
+    --accent-2: #00d4ff;
+    --success: #00d97e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(255, 56, 100, 0.08) 0%, transparent 50%),
+      radial-gradient(circle at 80% 100%, rgba(0, 212, 255, 0.06) 0%, transparent 50%);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  .app { max-width: 1100px; margin: 0 auto; padding: 32px 24px 60px; }
+  h1 { font-size: 32px; letter-spacing: -1px; font-weight: 800; margin-bottom: 4px; }
+  h1 span { background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  h2 { font-size: 18px; font-weight: 700; margin-bottom: 14px; }
+  .subtitle { color: var(--muted); margin-bottom: 28px; font-size: 14px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px; margin-bottom: 16px; }
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+  input, select, textarea {
+    width: 100%; background: #07070d; border: 1px solid var(--border);
+    color: var(--text); padding: 11px 14px; border-radius: 10px;
+    font-size: 14px; outline: none; transition: border-color 0.15s; font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  button {
+    background: linear-gradient(135deg, var(--accent) 0%, #e02850 100%);
+    color: white; border: none; padding: 11px 22px; border-radius: 10px;
+    font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit;
+    transition: transform 0.1s, box-shadow 0.2s;
+  }
+  button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255, 56, 100, 0.3); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: var(--panel-light); border: 1px solid var(--border); color: var(--text); }
+  button.secondary:hover { box-shadow: none; background: #29293a; }
+  button.tiny { padding: 6px 12px; font-size: 12px; }
+  .row { display: flex; gap: 10px; align-items: flex-end; }
+  .row > * { flex: 1; }
+  .row > button { flex: 0 0 auto; }
+  .hidden { display: none !important; }
+
+  /* Auth */
+  .auth-screen { max-width: 400px; margin: 80px auto; }
+
+  /* Setup banner */
+  .setup-banner { background: rgba(255, 56, 100, 0.1); border: 1px solid var(--accent); padding: 16px; border-radius: 10px; margin-bottom: 20px; font-size: 13px; }
+  .setup-banner code { background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+
+  /* Header */
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .user-info { font-size: 13px; color: var(--muted); }
+
+  /* Playlist tabs */
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .tab { background: var(--panel-light); border: 1px solid var(--border); color: var(--text); padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.15s; }
+  .tab.active { background: var(--accent); border-color: var(--accent); }
+  .tab:hover:not(.active) { background: #29293a; }
+
+  /* Search results */
+  .search-results { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; max-height: 400px; overflow-y: auto; }
+  .result {
+    display: flex; gap: 12px; align-items: center; padding: 10px;
+    background: var(--panel-light); border-radius: 10px; border: 1px solid var(--border);
+  }
+  .result img { width: 48px; height: 48px; border-radius: 6px; }
+  .result-info { flex: 1; min-width: 0; }
+  .result-title { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .result-meta { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Track list */
+  .track-list { display: flex; flex-direction: column; gap: 6px; max-height: 500px; overflow-y: auto; }
+  .track-row {
+    display: grid; grid-template-columns: 48px 1fr 60px 60px;
+    gap: 10px; align-items: center; padding: 8px; background: var(--panel-light);
+    border-radius: 8px; font-size: 13px;
+  }
+  .track-row img { width: 40px; height: 40px; border-radius: 4px; }
+  .track-row .year { font-weight: 700; color: var(--accent-2); text-align: center; }
+  .track-row button { padding: 4px 8px; font-size: 11px; background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .track-row button:hover { color: var(--accent); border-color: var(--accent); box-shadow: none; }
+
+  .stats { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .stat strong { color: var(--accent-2); }
+
+  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--success); color: black; padding: 12px 20px; border-radius: 10px; font-weight: 600; opacity: 0; transition: opacity 0.2s; }
+  .toast.show { opacity: 1; }
+  .toast.error { background: var(--accent); color: white; }
+
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<!-- ============ AUTH SCREEN ============ -->
+<div id="auth-screen" class="app auth-screen">
+  <h1>🎵 Timeline <span>Admin</span></h1>
+  <p class="subtitle">Log ind for at administrere dine playlister</p>
+
+  <div class="panel" id="config-panel">
+    <h2>⚙️ Setup</h2>
+    <p class="subtitle" style="font-size:12px;">Indtast din Supabase URL og anon key. Gemmes i localStorage.</p>
+    <label>Supabase URL</label>
+    <input id="cfg-url" placeholder="https://xxxxx.supabase.co">
+    <label style="margin-top:10px;">Supabase anon key</label>
+    <input id="cfg-key" placeholder="eyJhbGc...">
+    <button style="margin-top:14px;" onclick="saveConfig()">Gem og fortsæt</button>
+  </div>
+
+  <div class="panel hidden" id="login-panel">
+    <h2>Log ind</h2>
+    <label>Email</label>
+    <input id="email" type="email">
+    <label style="margin-top:10px;">Password</label>
+    <input id="password" type="password">
+    <div style="display:flex; gap:10px; margin-top:14px;">
+      <button onclick="login()">Log ind</button>
+      <button class="secondary" onclick="signup()">Opret konto</button>
+    </div>
+    <p style="font-size:12px; color:var(--muted); margin-top:14px;">
+      Glemt? <a href="#" onclick="resetConfig();return false;" style="color:var(--accent-2);">Skift Supabase-konfig</a>
+    </p>
+  </div>
+</div>
+
+<!-- ============ MAIN APP ============ -->
+<div id="main-app" class="app hidden">
+  <div class="topbar">
+    <div>
+      <h1>🎵 Timeline <span>Admin</span></h1>
+      <div class="user-info" id="user-info"></div>
+    </div>
+    <button class="secondary" onclick="logout()">Log ud</button>
+  </div>
+
+  <!-- Playlists -->
+  <div class="panel">
+    <h2>Playlister</h2>
+    <div class="tabs" id="playlist-tabs"></div>
+    <div class="row" style="margin-top:14px;">
+      <input id="new-playlist-name" placeholder="Ny playliste, fx 'Sommer 2026'">
+      <select id="new-playlist-category" style="max-width:180px;">
+        <option value="dansk">🇩🇰 Dansk</option>
+        <option value="american">🇺🇸 Amerikansk</option>
+        <option value="international">🌍 Internationalt</option>
+        <option value="disney">✨ Disney</option>
+      </select>
+      <button onclick="createPlaylist()">+ Opret</button>
+    </div>
+  </div>
+
+  <!-- Spotify search -->
+  <div class="panel" id="search-panel">
+    <h2>Søg på Spotify</h2>
+    <div class="row">
+      <input id="search-query" placeholder="fx 'Kim Larsen Kvinde min'" onkeydown="if(event.key==='Enter') searchSpotify()">
+      <button onclick="searchSpotify()">Søg</button>
+    </div>
+    <div class="search-results" id="search-results"></div>
+  </div>
+
+  <!-- Track list -->
+  <div class="panel" id="tracks-panel">
+    <h2 id="tracks-heading">Tracks</h2>
+    <div class="stats" id="tracks-stats"></div>
+    <div class="track-list" id="track-list"></div>
+    <div style="display:flex; gap:10px; margin-top:18px;">
+      <button onclick="generateAndPrint()" id="print-btn">🖨️ Generér kort til print</button>
+      <button class="secondary" onclick="exportCSV()">⬇️ Eksportér CSV</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// ============================================================
+// CONFIG & SUPABASE INIT
+// ============================================================
+let supa = null;
+let currentUser = null;
+let currentPlaylist = null;
+let playlists = [];
+let tracks = [];
+
+function loadConfig() {
+  const url = localStorage.getItem('tl_supa_url');
+  const key = localStorage.getItem('tl_supa_key');
+  if (url && key) {
+    supa = window.supabase.createClient(url, key);
+    document.getElementById('config-panel').classList.add('hidden');
+    document.getElementById('login-panel').classList.remove('hidden');
+    checkSession();
+  }
+}
+function saveConfig() {
+  const url = document.getElementById('cfg-url').value.trim();
+  const key = document.getElementById('cfg-key').value.trim();
+  if (!url || !key) return toast('Udfyld begge felter', 'error');
+  localStorage.setItem('tl_supa_url', url);
+  localStorage.setItem('tl_supa_key', key);
+  loadConfig();
+}
+function resetConfig() {
+  localStorage.removeItem('tl_supa_url');
+  localStorage.removeItem('tl_supa_key');
+  location.reload();
+}
+
+// ============================================================
+// AUTH
+// ============================================================
+async function checkSession() {
+  const { data: { session } } = await supa.auth.getSession();
+  if (session) {
+    currentUser = session.user;
+    showApp();
+  }
+}
+async function login() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const { data, error } = await supa.auth.signInWithPassword({ email, password });
+  if (error) return toast(error.message, 'error');
+  currentUser = data.user;
+  showApp();
+}
+async function signup() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const { data, error } = await supa.auth.signUp({ email, password });
+  if (error) return toast(error.message, 'error');
+  toast('Konto oprettet! Tjek email hvis bekræftelse er slået til.');
+  if (data.session) { currentUser = data.user; showApp(); }
+}
+async function logout() {
+  await supa.auth.signOut();
+  location.reload();
+}
+
+// ============================================================
+// MAIN APP
+// ============================================================
+async function showApp() {
+  document.getElementById('auth-screen').classList.add('hidden');
+  document.getElementById('main-app').classList.remove('hidden');
+  document.getElementById('user-info').textContent = currentUser.email;
+  await loadPlaylists();
+}
+
+async function loadPlaylists() {
+  const { data, error } = await supa.from('playlists')
+    .select('*').order('created_at', { ascending: true });
+  if (error) return toast(error.message, 'error');
+  playlists = data || [];
+  renderPlaylistTabs();
+  if (playlists.length > 0) selectPlaylist(playlists[0]);
+}
+
+function renderPlaylistTabs() {
+  const tabs = document.getElementById('playlist-tabs');
+  if (playlists.length === 0) {
+    tabs.innerHTML = '<div class="empty-state" style="padding:10px;">Ingen playlister endnu — opret én nedenfor</div>';
+    return;
+  }
+  tabs.innerHTML = playlists.map(p =>
+    `<div class="tab ${currentPlaylist?.id === p.id ? 'active' : ''}" onclick="selectPlaylistById('${p.id}')">${escapeHtml(p.name)}</div>`
+  ).join('');
+}
+
+function selectPlaylistById(id) {
+  const p = playlists.find(x => x.id === id);
+  if (p) selectPlaylist(p);
+}
+
+async function selectPlaylist(p) {
+  currentPlaylist = p;
+  renderPlaylistTabs();
+  document.getElementById('tracks-heading').textContent = `Tracks i "${p.name}"`;
+  await loadTracks();
+}
+
+async function createPlaylist() {
+  const name = document.getElementById('new-playlist-name').value.trim();
+  const category = document.getElementById('new-playlist-category').value;
+  if (!name) return toast('Indtast et navn', 'error');
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Math.random().toString(36).slice(2, 6);
+  const { data, error } = await supa.from('playlists').insert({
+    slug, name, category, owner_id: currentUser.id, is_public: false
+  }).select().single();
+  if (error) return toast(error.message, 'error');
+  document.getElementById('new-playlist-name').value = '';
+  playlists.push(data);
+  selectPlaylist(data);
+}
+
+// ============================================================
+// SPOTIFY SEARCH (via Edge Function)
+// ============================================================
+async function searchSpotify() {
+  const query = document.getElementById('search-query').value.trim();
+  if (!query) return;
+  const results = document.getElementById('search-results');
+  results.innerHTML = '<div class="empty-state">Søger...</div>';
+
+  const { data, error } = await supa.functions.invoke('spotify-search', {
+    body: { query, limit: 10 }
+  });
+  if (error) {
+    results.innerHTML = `<div class="empty-state">Fejl: ${error.message}</div>`;
+    return;
+  }
+  renderSearchResults(data.tracks || []);
+}
+
+function renderSearchResults(tracks) {
+  const results = document.getElementById('search-results');
+  if (tracks.length === 0) {
+    results.innerHTML = '<div class="empty-state">Ingen resultater</div>';
+    return;
+  }
+  results.innerHTML = tracks.map((t, i) => `
+    <div class="result">
+      <img src="${t.cover_url || ''}" onerror="this.style.visibility='hidden'">
+      <div class="result-info">
+        <div class="result-title">${escapeHtml(t.title)}</div>
+        <div class="result-meta">${escapeHtml(t.artist)} · ${t.year || '?'} · ${escapeHtml(t.album || '')}</div>
+      </div>
+      <button class="tiny" onclick='addTrack(${JSON.stringify(t).replace(/'/g, "&#39;")})'>+ Tilføj</button>
+    </div>
+  `).join('');
+}
+
+async function addTrack(t) {
+  if (!currentPlaylist) return toast('Vælg en playliste først', 'error');
+  if (!t.year) return toast('Track mangler årstal', 'error');
+
+  // Upsert track
+  const { data: track, error: te } = await supa.from('tracks').upsert({
+    spotify_id: t.spotify_id,
+    artist: t.artist,
+    title: t.title,
+    year: t.year,
+    album: t.album,
+    cover_url: t.cover_url,
+    preview_url: t.preview_url,
+    duration_ms: t.duration_ms,
+    added_by: currentUser.id,
+  }, { onConflict: 'spotify_id' }).select().single();
+  if (te) return toast(te.message, 'error');
+
+  // Link to playlist
+  const { error: le } = await supa.from('playlist_tracks').upsert({
+    playlist_id: currentPlaylist.id,
+    track_id: track.id,
+  });
+  if (le) return toast(le.message, 'error');
+
+  // Create card if not exists
+  const { data: existingCard } = await supa.from('cards')
+    .select('id').eq('track_id', track.id).eq('playlist_id', currentPlaylist.id).maybeSingle();
+  if (!existingCard) {
+    const cardId = Math.random().toString(36).slice(2, 8);
+    await supa.from('cards').insert({
+      id: cardId, track_id: track.id, playlist_id: currentPlaylist.id
+    });
+  }
+
+  toast(`✓ ${t.title} tilføjet`);
+  await loadTracks();
+}
+
+// ============================================================
+// TRACK LIST
+// ============================================================
+async function loadTracks() {
+  if (!currentPlaylist) return;
+  const { data, error } = await supa.from('playlist_tracks')
+    .select('track:tracks(*)')
+    .eq('playlist_id', currentPlaylist.id)
+    .order('added_at', { ascending: false });
+  if (error) return toast(error.message, 'error');
+  tracks = (data || []).map(r => r.track).filter(Boolean);
+  renderTracks();
+}
+
+function renderTracks() {
+  const list = document.getElementById('track-list');
+  document.getElementById('tracks-stats').innerHTML = `
+    <div class="stat"><strong>${tracks.length}</strong> tracks</div>
+    <div class="stat">Print fylder <strong>${Math.ceil(tracks.length / 12)}</strong> A4-ark (× 2 for duplex)</div>
+  `;
+  if (tracks.length === 0) {
+    list.innerHTML = '<div class="empty-state">Ingen tracks endnu — søg ovenfor og tilføj nogle</div>';
+    return;
+  }
+  list.innerHTML = tracks.map(t => `
+    <div class="track-row">
+      <img src="${t.cover_url || ''}" onerror="this.style.visibility='hidden'">
+      <div>
+        <div style="font-weight:600;">${escapeHtml(t.title)}</div>
+        <div style="color:var(--muted); font-size:12px;">${escapeHtml(t.artist)}</div>
+      </div>
+      <div class="year">${t.year}</div>
+      <button onclick="removeTrack('${t.id}')">Fjern</button>
+    </div>
+  `).join('');
+}
+
+async function removeTrack(trackId) {
+  if (!confirm('Fjern track fra denne playliste?')) return;
+  await supa.from('playlist_tracks')
+    .delete().eq('playlist_id', currentPlaylist.id).eq('track_id', trackId);
+  await loadTracks();
+}
+
+// ============================================================
+// EXPORT
+// ============================================================
+function exportCSV() {
+  if (tracks.length === 0) return toast('Ingen tracks at eksportere', 'error');
+  const csv = tracks.map(t =>
+    [t.artist, t.title, t.year, t.spotify_id].map(x => String(x).replace(/,/g, ';')).join(',')
+  ).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${currentPlaylist.slug}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// CARD GENERATION → opens print window
+// ============================================================
+async function generateAndPrint() {
+  if (tracks.length === 0) return toast('Ingen tracks', 'error');
+
+  // Fetch card IDs for all tracks in current playlist
+  const { data: cards } = await supa.from('cards')
+    .select('id, track_id')
+    .eq('playlist_id', currentPlaylist.id);
+  const cardMap = Object.fromEntries((cards || []).map(c => [c.track_id, c.id]));
+
+  // Build payload for print page
+  const payload = {
+    category: currentPlaylist.category,
+    categoryLabel: currentPlaylist.name.toUpperCase(),
+    tracks: tracks.map(t => ({
+      artist: t.artist,
+      title: t.title,
+      year: t.year,
+      spotify_id: t.spotify_id,
+      card_id: cardMap[t.id] || ''
+    }))
+  };
+
+  // Open print window with payload via sessionStorage
+  sessionStorage.setItem('tl_print_payload', JSON.stringify(payload));
+  window.open('print.html', '_blank');
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type === 'error' ? ' error' : '');
+  setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+// ============================================================
+// BOOT
+// ============================================================
+loadConfig();
+</script>
+</body>
+</html>

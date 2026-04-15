@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timeline – Kort Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --panel: #15151f;
+    --panel-light: #1f1f2e;
+    --border: #2a2a3a;
+    --text: #e8e8f0;
+    --muted: #8080a0;
+    --accent: #ff3864;
+    --accent-2: #00d4ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(255, 56, 100, 0.08) 0%, transparent 50%),
+      radial-gradient(circle at 80% 100%, rgba(0, 212, 255, 0.06) 0%, transparent 50%);
+    color: var(--text);
+    padding: 32px 24px 60px;
+    min-height: 100vh;
+  }
+  .ui { max-width: 920px; margin: 0 auto; }
+  h1 { font-size: 36px; margin-bottom: 6px; letter-spacing: -1px; font-weight: 800; }
+  h1 span {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .subtitle { color: var(--muted); margin-bottom: 28px; font-size: 15px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    margin-bottom: 16px;
+  }
+  label {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+  }
+  textarea, input, select {
+    width: 100%;
+    background: #07070d;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  textarea:focus, input:focus, select:focus { border-color: var(--accent); }
+  textarea { min-height: 200px; resize: vertical; line-height: 1.5; }
+  select { font-family: inherit; font-size: 14px; cursor: pointer; }
+  .actions { display: flex; gap: 10px; margin-top: 8px; }
+  button {
+    background: linear-gradient(135deg, var(--accent) 0%, #e02850 100%);
+    color: white;
+    border: none;
+    padding: 14px 28px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    letter-spacing: 0.3px;
+    transition: transform 0.1s, box-shadow 0.2s;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255, 56, 100, 0.3); }
+  button.secondary {
+    background: var(--panel-light);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  button.secondary:hover { box-shadow: none; background: #29293a; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.5; }
+  .counter {
+    display: inline-block;
+    background: var(--panel-light);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-left: 10px;
+  }
+  .counter strong { color: var(--accent-2); }
+
+  /* ============ CARDS ============ */
+  .sheets { margin-top: 40px; }
+  .sheet {
+    width: 210mm;
+    height: 297mm;
+    background: white;
+    margin: 0 auto 24px;
+    padding: 22.5mm 10.5mm;
+    display: grid;
+    grid-template-columns: repeat(3, 63mm);
+    grid-template-rows: repeat(4, 63mm);
+    gap: 0;
+    page-break-after: always;
+    position: relative;
+  }
+  .sheet-label {
+    position: absolute;
+    top: 8mm;
+    left: 10.5mm;
+    font-size: 9pt;
+    color: #aaa;
+    font-family: -apple-system, sans-serif;
+  }
+  .card {
+    width: 63mm;
+    height: 63mm;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    outline: 0.5px dashed #d5d5d5;
+    outline-offset: -0.25px;
+  }
+  .card.empty { background: transparent !important; }
+
+  /* ====== BACK CATEGORY THEMES (colored backgrounds) ====== */
+  .card.back.dansk {
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255,255,255,0.15) 0%, transparent 50%),
+      linear-gradient(135deg, #C8102E 0%, #8b0a1e 100%);
+  }
+  .card.back.american {
+    background:
+      radial-gradient(circle at 70% 20%, rgba(255,255,255,0.12) 0%, transparent 50%),
+      linear-gradient(135deg, #002868 0%, #BF0A30 100%);
+  }
+  .card.back.international {
+    background:
+      radial-gradient(circle at 30% 80%, rgba(0,212,255,0.2) 0%, transparent 50%),
+      linear-gradient(135deg, #6b2d8f 0%, #1a0b3d 100%);
+  }
+  .card.back.disney {
+    background:
+      radial-gradient(circle at 50% 0%, rgba(255,215,100,0.25) 0%, transparent 60%),
+      linear-gradient(160deg, #4a2a8e 0%, #8b5cf6 50%, #d4a034 100%);
+  }
+
+  /* ====== FRONT — always black with vinyl rings ====== */
+  .card.front {
+    background: #0a0a0a;
+  }
+  .card.front .rings {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card.front .ring {
+    position: absolute;
+    border-radius: 50%;
+    border-style: solid;
+    border-width: 1.4mm;
+  }
+  /* Ring sizes (concentric, evenly spaced) */
+  .card.front .r1 { width: 58mm; height: 58mm; }
+  .card.front .r2 { width: 50mm; height: 50mm; }
+  .card.front .r3 { width: 42mm; height: 42mm; }
+  .card.front .r4 { width: 34mm; height: 34mm; }
+
+  /* Per-category ring color palettes */
+  .card.front.dansk .r1 { border-color: #ff2d6f; }
+  .card.front.dansk .r2 { border-color: #ffd400; }
+  .card.front.dansk .r3 { border-color: #00c2ff; }
+  .card.front.dansk .r4 { border-color: #ffffff; }
+
+  .card.front.american .r1 { border-color: #00b4ff; }
+  .card.front.american .r2 { border-color: #ff3b3b; }
+  .card.front.american .r3 { border-color: #ffffff; }
+  .card.front.american .r4 { border-color: #ffd400; }
+
+  .card.front.international .r1 { border-color: #ff00aa; }
+  .card.front.international .r2 { border-color: #00ffd1; }
+  .card.front.international .r3 { border-color: #ffaa00; }
+  .card.front.international .r4 { border-color: #aa55ff; }
+
+  .card.front.disney .r1 { border-color: #ffd700; }
+  .card.front.disney .r2 { border-color: #ff5fb4; }
+  .card.front.disney .r3 { border-color: #5fc8ff; }
+  .card.front.disney .r4 { border-color: #b69cff; }
+
+  /* FRONT layout */
+  .card.front .brand {
+    position: absolute;
+    bottom: 2.5mm;
+    left: 0; right: 0;
+    text-align: center;
+    font-size: 5.5pt;
+    font-weight: 800;
+    letter-spacing: 3px;
+    color: rgba(255,255,255,0.55);
+    z-index: 3;
+  }
+  .card.front .cat-tag {
+    position: absolute;
+    top: 2.5mm;
+    left: 0; right: 0;
+    text-align: center;
+    font-size: 5pt;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    color: rgba(255,255,255,0.4);
+    z-index: 3;
+  }
+  .card.front .qr-wrap {
+    position: relative;
+    background: white;
+    padding: 1.8mm;
+    border-radius: 1mm;
+    z-index: 2;
+    box-shadow: 0 0 0 0.5mm #0a0a0a, 0 1.5mm 4mm rgba(0,0,0,0.5);
+  }
+  .card.front .qr-wrap > div,
+  .card.front .qr-wrap canvas,
+  .card.front .qr-wrap img {
+    display: block !important;
+    width: 26mm !important;
+    height: 26mm !important;
+  }
+
+  /* BACK */
+  .card.back { padding: 6mm 5mm; }
+  .card.back .artist {
+    position: absolute;
+    top: 6mm;
+    left: 5mm; right: 5mm;
+    text-align: center;
+    font-size: 10.5pt;
+    font-weight: 700;
+    line-height: 1.15;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  }
+  .card.back .year-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .card.back .year {
+    font-size: 44pt;
+    font-weight: 900;
+    letter-spacing: -2px;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    line-height: 1;
+  }
+  .card.back .title {
+    position: absolute;
+    bottom: 6mm;
+    left: 5mm; right: 5mm;
+    text-align: center;
+    font-size: 9pt;
+    font-style: italic;
+    font-weight: 500;
+    line-height: 1.2;
+    opacity: 0.95;
+  }
+  .card.back .divider-top,
+  .card.back .divider-bottom {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 12mm;
+    height: 0.4mm;
+    background: rgba(255,255,255,0.5);
+  }
+  .card.back .divider-top { top: 14mm; }
+  .card.back .divider-bottom { bottom: 14mm; }
+
+  @media screen {
+    .sheet {
+      box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+      transform: scale(0.72);
+      transform-origin: top center;
+      margin-bottom: -60mm;
+    }
+    .sheets { padding-bottom: 100mm; }
+  }
+
+  @media print {
+    body {
+      background: white;
+      padding: 0;
+      background-image: none;
+    }
+    .ui { display: none; }
+    .sheets { margin-top: 0; }
+    .sheet {
+      margin: 0;
+      box-shadow: none;
+      transform: none;
+    }
+    .sheet-label { display: none; }
+    .card { outline: 0.3px dashed #e0e0e0; }
+    @page { size: A4; margin: 0; }
+  }
+</style>
+</head>
+<body>
+  <div class="ui">
+    <h1>🎵 Timeline <span>Kort Generator</span></h1>
+    <p class="subtitle">Printbare QR-kort til dit musik-tidslinjespil</p>
+
+    <div class="panel">
+      <label>Kategori / tema</label>
+      <select id="category">
+        <option value="dansk">🇩🇰 Dansk musik</option>
+        <option value="american">🇺🇸 Amerikansk musik</option>
+        <option value="international">🌍 Internationalt</option>
+        <option value="disney">✨ Disney</option>
+      </select>
+    </div>
+
+    <div class="panel">
+      <label>Base URL for QR-kode</label>
+      <input id="baseUrl" value="https://open.spotify.com/track/{spotify_id}">
+      <p class="hint">
+        <code>{spotify_id}</code> = Spotify track-ID &nbsp;·&nbsp; <code>{card_id}</code> = unikt kort-ID.<br>
+        Skift senere til fx <code>https://timeline.dk/c/{card_id}</code> når din app er live.
+      </p>
+    </div>
+
+    <div class="panel">
+      <label>
+        Tracks (CSV format)
+        <span class="counter">Format: <strong>artist, titel, årstal, spotify_id</strong></span>
+      </label>
+      <textarea id="csv">Kim Larsen,Kvinde min,1983,3ZFTkvIE7kyPt6Nu3PEa7V
+TV-2,Nærmest lykkelig,1988,2ZWlPOoWh0626oTaHrnl2a
+Gasolin',Masser af succes,1975,6JX7PtR3XXmQ8qXWnB9Kfp
+Medina,Kun for mig,2008,7LVHVU3tWfcxj5aiPFEW4Q
+Lukas Graham,7 Years,2015,2JzZzZUQj3Qff7wapcbKjc
+Dodo and the Dodos,Sæt din kaffe over,1986,3rKqjNv0FZxHLPzZZzFzGz
+MØ,Final Song,2016,0H8XeaJunhvpBdBFIYi6Sh
+Shu-Bi-Dua,Costa Calida,1977,5G9m3Q1Qi5JqWXQFHrGFQG
+Rasmus Seebach,Den jeg er,2011,0cqUJwKhvMGYvNaOL6MlgH
+Nik & Jay,Hot,2002,4kV4N9QKRaCprQhTqSyEtL
+D-A-D,Sleeping My Day Away,1989,5Zf0DgSAoFZLgVzg0HgKLw
+Thomas Helmig,Det er mig der står herude og banker på,1988,2xWXCd4QfKv7zN6K8zGJQL</textarea>
+    </div>
+
+    <div class="actions">
+      <button onclick="generateCards()">🎨 Generér kort</button>
+      <button class="secondary" onclick="window.print()">🖨️ Print</button>
+    </div>
+
+    <div class="panel" style="margin-top: 20px;">
+      <label>💡 Print-tip</label>
+      <p class="hint" style="margin: 0;">
+        Brug <strong style="color: var(--text);">duplex-print med "vend langs lang kant"</strong>
+        (standard på de fleste printere). Bagsiderne er allerede spejlvendt så de flugter med
+        fronterne. Tjek første ark før du printer hele bunken.
+      </p>
+    </div>
+  </div>
+
+  <div id="sheets" class="sheets"></div>
+
+  <script>
+    const CARDS_PER_PAGE = 12;
+    const COLS = 3;
+    const ROWS = 4;
+
+    function parseCSV(text) {
+      return text.trim().split('\n').map((line, idx) => {
+        const parts = line.split(',').map(s => s.trim());
+        if (parts.length < 3) return null;
+        const [artist, title, year, spotify_id] = parts;
+        return {
+          artist, title, year,
+          spotify_id: spotify_id || '',
+          card_id: (idx.toString(36) + Math.random().toString(36).slice(2, 6)).slice(0, 6)
+        };
+      }).filter(t => t && t.artist);
+    }
+
+    function buildUrl(template, track) {
+      return template
+        .replace('{spotify_id}', track.spotify_id)
+        .replace('{card_id}', track.card_id);
+    }
+
+    function makeEmptyCard() {
+      const el = document.createElement('div');
+      el.className = 'card empty';
+      return el;
+    }
+
+    function makeFrontCard(track, category, categoryLabel, baseUrl) {
+      const card = document.createElement('div');
+      card.className = `card front ${category}`;
+      card.innerHTML = `
+        <div class="cat-tag">${categoryLabel}</div>
+        <div class="rings">
+          <div class="ring r1"></div>
+          <div class="ring r2"></div>
+          <div class="ring r3"></div>
+          <div class="ring r4"></div>
+        </div>
+        <div class="qr-wrap"><div class="qr"></div></div>
+        <div class="brand">TIMELINE</div>
+      `;
+      new QRCode(card.querySelector('.qr'), {
+        text: buildUrl(baseUrl, track),
+        width: 104,
+        height: 104,
+        correctLevel: QRCode.CorrectLevel.M
+      });
+      return card;
+    }
+
+    function makeBackCard(track, category) {
+      const card = document.createElement('div');
+      card.className = `card back ${category}`;
+      card.innerHTML = `
+        <div class="artist">${escapeHtml(track.artist)}</div>
+        <div class="divider-top"></div>
+        <div class="year-wrap"><div class="year">${escapeHtml(track.year)}</div></div>
+        <div class="divider-bottom"></div>
+        <div class="title">${escapeHtml(track.title)}</div>
+      `;
+      return card;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[c]));
+    }
+
+    function generateCards() {
+      const tracks = parseCSV(document.getElementById('csv').value);
+      const category = document.getElementById('category').value;
+      const categoryLabel = document.getElementById('category').selectedOptions[0].text
+        .replace(/[^\wÆØÅæøå ]/g, '').trim().toUpperCase();
+      const baseUrl = document.getElementById('baseUrl').value;
+      const sheets = document.getElementById('sheets');
+      sheets.innerHTML = '';
+
+      if (tracks.length === 0) {
+        sheets.innerHTML = '<p style="text-align:center; color: var(--muted); padding: 40px;">Ingen tracks at generere. Tilføj nogle i CSV-feltet ovenfor.</p>';
+        return;
+      }
+
+      for (let i = 0; i < tracks.length; i += CARDS_PER_PAGE) {
+        const pageTracks = tracks.slice(i, i + CARDS_PER_PAGE);
+        const pageNum = Math.floor(i / CARDS_PER_PAGE) + 1;
+
+        // ========== FRONT PAGE ==========
+        const front = document.createElement('div');
+        front.className = 'sheet';
+        front.innerHTML = `<div class="sheet-label">Side ${pageNum} – Fronter (QR)</div>`;
+        pageTracks.forEach(track => {
+          front.appendChild(makeFrontCard(track, category, categoryLabel, baseUrl));
+        });
+        for (let j = pageTracks.length; j < CARDS_PER_PAGE; j++) {
+          front.appendChild(makeEmptyCard());
+        }
+        sheets.appendChild(front);
+
+        // ========== BACK PAGE (mirrored for duplex long-edge) ==========
+        const back = document.createElement('div');
+        back.className = 'sheet';
+        back.innerHTML = `<div class="sheet-label">Side ${pageNum} – Bagsider (år/artist/titel)</div>`;
+
+        // Build rows, pad with null, reverse each row for mirror
+        const rows = [];
+        for (let r = 0; r < ROWS; r++) {
+          const row = pageTracks.slice(r * COLS, r * COLS + COLS);
+          while (row.length < COLS) row.push(null);
+          rows.push(row.reverse());
+        }
+        rows.flat().forEach(track => {
+          back.appendChild(track ? makeBackCard(track, category) : makeEmptyCard());
+        });
+        sheets.appendChild(back);
+      }
+    }
+
+    window.addEventListener('load', generateCards);
+  </script>
+</body>
+</html>

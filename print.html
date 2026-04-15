@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<title>Timeline – Print</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  body { margin: 0; padding: 0; background: #555; font-family: -apple-system, sans-serif; }
+  .toolbar { position: fixed; top: 16px; right: 16px; z-index: 100; display: flex; gap: 8px; }
+  .toolbar button { padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: #ff3864; color: white; }
+  .toolbar button.secondary { background: white; color: #333; }
+
+  .sheet {
+    width: 210mm; height: 297mm; background: white; margin: 16px auto;
+    padding: 22.5mm 10.5mm;
+    display: grid; grid-template-columns: repeat(3, 63mm); grid-template-rows: repeat(4, 63mm);
+    gap: 0; page-break-after: always; position: relative;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }
+  .sheet-label { position: absolute; top: 8mm; left: 10.5mm; font-size: 9pt; color: #aaa; }
+
+  .card {
+    width: 63mm; height: 63mm; position: relative; overflow: hidden;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: white; font-family: -apple-system, system-ui, sans-serif;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    outline: 0.5px dashed #d5d5d5; outline-offset: -0.25px;
+  }
+  .card.empty { background: transparent !important; }
+
+  /* BACK themes */
+  .card.back.dansk { background: radial-gradient(circle at 30% 20%, rgba(255,255,255,0.15) 0%, transparent 50%), linear-gradient(135deg, #C8102E 0%, #8b0a1e 100%); }
+  .card.back.american { background: radial-gradient(circle at 70% 20%, rgba(255,255,255,0.12) 0%, transparent 50%), linear-gradient(135deg, #002868 0%, #BF0A30 100%); }
+  .card.back.international { background: radial-gradient(circle at 30% 80%, rgba(0,212,255,0.2) 0%, transparent 50%), linear-gradient(135deg, #6b2d8f 0%, #1a0b3d 100%); }
+  .card.back.disney { background: radial-gradient(circle at 50% 0%, rgba(255,215,100,0.25) 0%, transparent 60%), linear-gradient(160deg, #4a2a8e 0%, #8b5cf6 50%, #d4a034 100%); }
+
+  /* FRONT vinyl rings */
+  .card.front { background: #0a0a0a; }
+  .card.front .rings { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .card.front .ring { position: absolute; border-radius: 50%; border-style: solid; border-width: 1.4mm; }
+  .card.front .r1 { width: 58mm; height: 58mm; }
+  .card.front .r2 { width: 50mm; height: 50mm; }
+  .card.front .r3 { width: 42mm; height: 42mm; }
+  .card.front .r4 { width: 34mm; height: 34mm; }
+
+  .card.front.dansk .r1 { border-color: #ff2d6f; }
+  .card.front.dansk .r2 { border-color: #ffd400; }
+  .card.front.dansk .r3 { border-color: #00c2ff; }
+  .card.front.dansk .r4 { border-color: #ffffff; }
+  .card.front.american .r1 { border-color: #00b4ff; }
+  .card.front.american .r2 { border-color: #ff3b3b; }
+  .card.front.american .r3 { border-color: #ffffff; }
+  .card.front.american .r4 { border-color: #ffd400; }
+  .card.front.international .r1 { border-color: #ff00aa; }
+  .card.front.international .r2 { border-color: #00ffd1; }
+  .card.front.international .r3 { border-color: #ffaa00; }
+  .card.front.international .r4 { border-color: #aa55ff; }
+  .card.front.disney .r1 { border-color: #ffd700; }
+  .card.front.disney .r2 { border-color: #ff5fb4; }
+  .card.front.disney .r3 { border-color: #5fc8ff; }
+  .card.front.disney .r4 { border-color: #b69cff; }
+
+  .card.front .brand { position: absolute; bottom: 2.5mm; left: 0; right: 0; text-align: center; font-size: 5.5pt; font-weight: 800; letter-spacing: 3px; color: rgba(255,255,255,0.55); z-index: 3; }
+  .card.front .cat-tag { position: absolute; top: 2.5mm; left: 0; right: 0; text-align: center; font-size: 5pt; font-weight: 700; letter-spacing: 2.5px; color: rgba(255,255,255,0.4); z-index: 3; }
+  .card.front .qr-wrap { position: relative; background: white; padding: 1.8mm; border-radius: 1mm; z-index: 2; box-shadow: 0 0 0 0.5mm #0a0a0a, 0 1.5mm 4mm rgba(0,0,0,0.5); }
+  .card.front .qr-wrap > div, .card.front .qr-wrap canvas, .card.front .qr-wrap img { display: block !important; width: 26mm !important; height: 26mm !important; }
+
+  /* BACK content */
+  .card.back { padding: 6mm 5mm; }
+  .card.back .artist { position: absolute; top: 6mm; left: 5mm; right: 5mm; text-align: center; font-size: 10.5pt; font-weight: 700; line-height: 1.15; text-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+  .card.back .year-wrap { display: flex; align-items: center; justify-content: center; }
+  .card.back .year { font-size: 44pt; font-weight: 900; letter-spacing: -2px; font-variant-numeric: tabular-nums; text-shadow: 0 2px 8px rgba(0,0,0,0.35); line-height: 1; }
+  .card.back .title { position: absolute; bottom: 6mm; left: 5mm; right: 5mm; text-align: center; font-size: 9pt; font-style: italic; font-weight: 500; line-height: 1.2; opacity: 0.95; }
+  .card.back .divider-top, .card.back .divider-bottom { position: absolute; left: 50%; transform: translateX(-50%); width: 12mm; height: 0.4mm; background: rgba(255,255,255,0.5); }
+  .card.back .divider-top { top: 14mm; }
+  .card.back .divider-bottom { bottom: 14mm; }
+
+  @media print {
+    body { background: white; }
+    .toolbar { display: none; }
+    .sheet { margin: 0; box-shadow: none; }
+    .sheet-label { display: none; }
+    @page { size: A4; margin: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button onclick="window.print()">🖨️ Print</button>
+  <button class="secondary" onclick="window.close()">Luk</button>
+</div>
+
+<div id="sheets"></div>
+
+<script>
+const CARDS_PER_PAGE = 12, COLS = 3, ROWS = 4;
+// QR points to your app — change this to your deployed app URL
+const QR_BASE = 'https://open.spotify.com/track/{spotify_id}';
+// Or, when your game app is live:
+// const QR_BASE = 'https://timeline.dk/c/{card_id}';
+
+function buildUrl(t) { return QR_BASE.replace('{spotify_id}', t.spotify_id).replace('{card_id}', t.card_id); }
+function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function makeEmpty() { const el = document.createElement('div'); el.className = 'card empty'; return el; }
+
+function makeFront(t, cat, label) {
+  const c = document.createElement('div');
+  c.className = `card front ${cat}`;
+  c.innerHTML = `
+    <div class="cat-tag">${label}</div>
+    <div class="rings">
+      <div class="ring r1"></div><div class="ring r2"></div>
+      <div class="ring r3"></div><div class="ring r4"></div>
+    </div>
+    <div class="qr-wrap"><div class="qr"></div></div>
+    <div class="brand">TIMELINE</div>
+  `;
+  new QRCode(c.querySelector('.qr'), { text: buildUrl(t), width: 104, height: 104, correctLevel: QRCode.CorrectLevel.M });
+  return c;
+}
+
+function makeBack(t, cat) {
+  const c = document.createElement('div');
+  c.className = `card back ${cat}`;
+  c.innerHTML = `
+    <div class="artist">${escapeHtml(t.artist)}</div>
+    <div class="divider-top"></div>
+    <div class="year-wrap"><div class="year">${escapeHtml(t.year)}</div></div>
+    <div class="divider-bottom"></div>
+    <div class="title">${escapeHtml(t.title)}</div>
+  `;
+  return c;
+}
+
+function render() {
+  const raw = sessionStorage.getItem('tl_print_payload');
+  if (!raw) {
+    document.getElementById('sheets').innerHTML = '<p style="color:white; padding:40px; text-align:center;">Ingen data — åbn denne side via admin-interfacet.</p>';
+    return;
+  }
+  const { category, categoryLabel, tracks } = JSON.parse(raw);
+  const sheets = document.getElementById('sheets');
+
+  for (let i = 0; i < tracks.length; i += CARDS_PER_PAGE) {
+    const page = tracks.slice(i, i + CARDS_PER_PAGE);
+    const pageNum = Math.floor(i / CARDS_PER_PAGE) + 1;
+
+    // Front
+    const front = document.createElement('div');
+    front.className = 'sheet';
+    front.innerHTML = `<div class="sheet-label">Side ${pageNum} – Fronter (QR)</div>`;
+    page.forEach(t => front.appendChild(makeFront(t, category, categoryLabel)));
+    for (let j = page.length; j < CARDS_PER_PAGE; j++) front.appendChild(makeEmpty());
+    sheets.appendChild(front);
+
+    // Back (mirrored per row for duplex long-edge)
+    const back = document.createElement('div');
+    back.className = 'sheet';
+    back.innerHTML = `<div class="sheet-label">Side ${pageNum} – Bagsider</div>`;
+    const rows = [];
+    for (let r = 0; r < ROWS; r++) {
+      const row = page.slice(r * COLS, r * COLS + COLS);
+      while (row.length < COLS) row.push(null);
+      rows.push(row.reverse());
+    }
+    rows.flat().forEach(t => back.appendChild(t ? makeBack(t, category) : makeEmpty()));
+    sheets.appendChild(back);
+  }
+}
+
+render();
+</script>
+</body>
+</html>
