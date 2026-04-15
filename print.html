@@ -70,7 +70,7 @@
     display: inline-block; line-height: 0;
   }
   .card.front .qr-wrap canvas { display: none !important; }
-  .card.front .qr-wrap img { display: block !important; width: 24mm !important; height: 24mm !important; }
+  .card.front .qr-wrap img { display: block !important; width: 28mm !important; height: 28mm !important; }
   .card.front .playlist-name {
     position: absolute; bottom: 8mm; left: 3mm; right: 3mm;
     text-align: center; font-size: 10pt; font-weight: 800;
@@ -218,16 +218,12 @@ const CATEGORY_LABELS = {
 function makeFront(t, cat, playlistName) {
   const c = document.createElement('div');
   c.className = `card front ${cat}`;
-  const catLabel = CATEGORY_LABELS[cat] || cat.toUpperCase();
   c.innerHTML = `
-    <div class="cat-tag">${catLabel}</div>
     <div class="rings">
       <div class="ring r1"></div><div class="ring r2"></div>
       <div class="ring r3"></div><div class="ring r4"></div>
     </div>
     <div class="qr-wrap"><div class="qr"></div></div>
-    <div class="playlist-name">${escapeHtml(playlistName)}</div>
-    <div class="brand">MUSIKA</div>
   `;
   new QRCode(c.querySelector('.qr'), { text: buildUrl(t), width: 104, height: 104, correctLevel: QRCode.CorrectLevel.M });
   return c;
@@ -237,14 +233,12 @@ function makeBack(t, cat) {
   const c = document.createElement('div');
   c.className = `card back ${cat}`;
   c.setAttribute('style', backStyle(cat, t.year));
-  const decade = decadeOf(t.year);
   c.innerHTML = `
     <div class="artist">${escapeHtml(t.artist)}</div>
     <div class="divider-top"></div>
     <div class="year-wrap"><div class="year">${escapeHtml(t.year)}</div></div>
     <div class="divider-bottom"></div>
     <div class="title">${escapeHtml(t.title)}</div>
-    <div class="decade-tag">${decade}'ERNE</div>
   `;
   return c;
 }
