@@ -5,6 +5,7 @@
 <title>Timeline – Print</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
+  * { box-sizing: border-box; }
   body { margin: 0; padding: 0; background: #555; font-family: -apple-system, sans-serif; }
   .toolbar { position: fixed; top: 16px; right: 16px; z-index: 100; display: flex; gap: 8px; }
   .toolbar button { padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: #ff3864; color: white; }
@@ -14,9 +15,13 @@
     width: 210mm; height: 297mm; background: white; margin: 16px auto;
     padding: 22.5mm 10.5mm;
     display: grid; grid-template-columns: repeat(3, 63mm); grid-template-rows: repeat(4, 63mm);
-    gap: 0; page-break-after: always; position: relative;
+    gap: 0; position: relative;
     box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    page-break-after: always;
+    break-after: page;
+    overflow: hidden;
   }
+  .sheet:last-child { page-break-after: auto; break-after: auto; }
   .sheet-label { position: absolute; top: 8mm; left: 10.5mm; font-size: 9pt; color: #aaa; }
 
   .card {
@@ -62,8 +67,9 @@
 
   .card.front .brand { position: absolute; bottom: 2.5mm; left: 0; right: 0; text-align: center; font-size: 5.5pt; font-weight: 800; letter-spacing: 3px; color: rgba(255,255,255,0.55); z-index: 3; }
   .card.front .cat-tag { position: absolute; top: 2.5mm; left: 0; right: 0; text-align: center; font-size: 5pt; font-weight: 700; letter-spacing: 2.5px; color: rgba(255,255,255,0.4); z-index: 3; }
-  .card.front .qr-wrap { position: relative; background: white; padding: 1.8mm; border-radius: 1mm; z-index: 2; box-shadow: 0 0 0 0.5mm #0a0a0a, 0 1.5mm 4mm rgba(0,0,0,0.5); }
-  .card.front .qr-wrap > div, .card.front .qr-wrap canvas, .card.front .qr-wrap img { display: block !important; width: 26mm !important; height: 26mm !important; }
+  .card.front .qr-wrap { position: relative; background: white; padding: 1.8mm; border-radius: 1mm; z-index: 2; box-shadow: 0 0 0 0.5mm #0a0a0a, 0 1.5mm 4mm rgba(0,0,0,0.5); display: inline-block; line-height: 0; }
+  .card.front .qr-wrap canvas { display: none !important; }
+  .card.front .qr-wrap img { display: block !important; width: 26mm !important; height: 26mm !important; }
 
   /* BACK content */
   .card.back { padding: 6mm 5mm; }
