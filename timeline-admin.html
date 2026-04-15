@@ -176,9 +176,9 @@
       <input id="new-playlist-name" placeholder="Ny playliste, fx 'Sommer 2026'">
       <select id="new-playlist-category" style="max-width:180px;">
         <option value="dansk">🇩🇰 Dansk</option>
-        <option value="american">🇺🇸 Amerikansk</option>
         <option value="international">🌍 Internationalt</option>
         <option value="disney">✨ Disney</option>
+        <option value="film">🎬 Filmmusik</option>
       </select>
       <button onclick="createPlaylist()">+ Opret</button>
     </div>
@@ -813,6 +813,7 @@ async function generateAndPrint() {
   const payload = {
     category: currentPlaylist.category,
     categoryLabel: currentPlaylist.name.toUpperCase(),
+    playlistName: currentPlaylist.name,
     tracks: tracks.map(t => ({
       artist: t.artist,
       title: t.title,
