@@ -326,9 +326,34 @@ function renderPlaylistTabs() {
     tabs.innerHTML = '<div class="empty-state" style="padding:10px;">Ingen playlister endnu — opret én nedenfor</div>';
     return;
   }
-  tabs.innerHTML = playlists.map(p =>
-    `<div class="tab ${currentPlaylist?.id === p.id ? 'active' : ''}" onclick="selectPlaylistById('${p.id}')">${escapeHtml(p.name)}</div>`
-  ).join('');
+  tabs.innerHTML = playlists.map(p => {
+    const isActive = currentPlaylist?.id === p.id;
+    return `<div class="tab ${isActive ? 'active' : ''}" onclick="selectPlaylistById('${p.id}')">
+      ${escapeHtml(p.name)}
+      ${isActive ? `<span onclick="event.stopPropagation(); deletePlaylist('${p.id}')" style="margin-left:8px; opacity:0.7; cursor:pointer;" title="Slet playliste">✕</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function deletePlaylist(id) {
+  const p = playlists.find(x => x.id === id);
+  if (!p) return;
+  if (!confirm(`Slet playlisten "${p.name}"?\n\nDette fjerner alle kort og links i denne playliste. Tracks i den globale database påvirkes ikke.`)) return;
+
+  // Delete cards first (FK constraint)
+  await supa.from('cards').delete().eq('playlist_id', id);
+  // Delete playlist_tracks
+  await supa.from('playlist_tracks').delete().eq('playlist_id', id);
+  // Delete playlist
+  const { error } = await supa.from('playlists').delete().eq('id', id);
+  if (error) return toast(error.message, 'error');
+
+  toast(`✓ "${p.name}" slettet`);
+  playlists = playlists.filter(x => x.id !== id);
+  currentPlaylist = playlists[0] || null;
+  renderPlaylistTabs();
+  if (currentPlaylist) selectPlaylist(currentPlaylist);
+  else { tracks = []; renderTracks(); document.getElementById('tracks-heading').textContent = 'Tracks'; }
 }
 
 function selectPlaylistById(id) {
@@ -339,7 +364,15 @@ function selectPlaylistById(id) {
 async function selectPlaylist(p) {
   currentPlaylist = p;
   renderPlaylistTabs();
-  document.getElementById('tracks-heading').textContent = `Tracks i "${p.name}"`;
+  let heading = `Tracks i "${p.name}"`;
+  if (p.spotify_url) {
+    heading += ` <a href="${p.spotify_url}" target="_blank" style="font-size:11px; font-weight:400; color:var(--accent-2); margin-left:8px;">🔗 Spotify-link</a>`;
+  }
+  document.getElementById('tracks-heading').innerHTML = heading;
+  // Auto-fill the import URL for easy re-import
+  if (p.spotify_url) {
+    document.getElementById('import-url').value = p.spotify_url;
+  }
   await loadTracks();
 }
 
@@ -628,6 +661,13 @@ async function importAllFiltered() {
 
   const btn = document.querySelector('#import-preview button');
   if (btn) { btn.disabled = true; btn.textContent = 'Importerer...'; }
+
+  // Save spotify URL to playlist for re-import later
+  const importUrl = document.getElementById('import-url').value.trim();
+  if (importUrl) {
+    await supa.from('playlists').update({ spotify_url: importUrl }).eq('id', currentPlaylist.id);
+    currentPlaylist.spotify_url = importUrl;
+  }
 
   let success = 0, failed = 0;
   for (let i = 0; i < tracks.length; i++) {
