@@ -121,6 +121,8 @@
     <input id="cfg-url" placeholder="https://xxxxx.supabase.co">
     <label style="margin-top:10px;">Supabase anon key</label>
     <input id="cfg-key" placeholder="eyJhbGc...">
+    <label style="margin-top:10px;">Spotify Client ID (valgfri – kun for OAuth login)</label>
+    <input id="cfg-spotify" placeholder="dit_spotify_client_id">
     <button style="margin-top:14px;" onclick="saveConfig()">Gem og fortsæt</button>
   </div>
 
@@ -147,7 +149,10 @@
       <h1>🎵 Timeline <span>Admin</span></h1>
       <div class="user-info" id="user-info"></div>
     </div>
-    <button class="secondary" onclick="logout()">Log ud</button>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <div id="spotify-status"></div>
+      <button class="secondary" onclick="logout()">Log ud</button>
+    </div>
   </div>
 
   <!-- Playlists -->
@@ -170,19 +175,22 @@
   <div class="panel" id="import-panel">
     <h2>Importér fra Spotify</h2>
     <p style="font-size:12px; color:var(--muted); margin-bottom:10px;">
-      Paste URL til en offentlig <strong>playliste</strong> eller et <strong>album</strong> — fx
+      Paste URL til en <strong>playliste</strong> eller et <strong>album</strong> — fx
       <code style="background:rgba(0,0,0,0.3); padding:1px 5px; border-radius:3px;">open.spotify.com/playlist/...</code>
       eller <code style="background:rgba(0,0,0,0.3); padding:1px 5px; border-radius:3px;">open.spotify.com/album/...</code>
     </p>
     <div class="row">
-      <input id="import-url" placeholder="Spotify playlist URL" onkeydown="if(event.key==='Enter') previewPlaylist()">
+      <input id="import-url" placeholder="Spotify playlist eller album URL" onkeydown="if(event.key==='Enter') previewPlaylist()">
       <button onclick="previewPlaylist()">Hent</button>
     </div>
-    <div style="margin-top:10px; display:flex; gap:14px; align-items:center; font-size:13px; color:var(--muted);">
+    <div style="margin-top:10px; display:flex; gap:14px; align-items:center; font-size:13px; color:var(--muted); flex-wrap:wrap;">
       <label style="display:flex; gap:6px; align-items:center; text-transform:none; letter-spacing:0; margin:0; cursor:pointer;">
         <input type="checkbox" id="filter-live" checked style="width:auto; margin:0;">
         Filtrér live-versioner og remasters fra
       </label>
+      <button class="secondary" onclick="showMyPlaylists()" id="my-playlists-btn" style="padding:6px 12px; font-size:12px; display:none;">
+        📋 Vis mine Spotify-playlister
+      </button>
     </div>
     <div id="import-preview"></div>
   </div>
@@ -234,14 +242,17 @@ function loadConfig() {
 function saveConfig() {
   const url = document.getElementById('cfg-url').value.trim();
   const key = document.getElementById('cfg-key').value.trim();
-  if (!url || !key) return toast('Udfyld begge felter', 'error');
+  const spotify = document.getElementById('cfg-spotify').value.trim();
+  if (!url || !key) return toast('Supabase URL og key skal udfyldes', 'error');
   localStorage.setItem('tl_supa_url', url);
   localStorage.setItem('tl_supa_key', key);
+  if (spotify) localStorage.setItem('tl_spotify_client_id', spotify);
   loadConfig();
 }
 function resetConfig() {
   localStorage.removeItem('tl_supa_url');
   localStorage.removeItem('tl_supa_key');
+  localStorage.removeItem('tl_spotify_client_id');
   location.reload();
 }
 
@@ -284,6 +295,7 @@ async function showApp() {
   document.getElementById('main-app').classList.remove('hidden');
   document.getElementById('user-info').textContent = currentUser.email;
   await loadPlaylists();
+  await initSpotifyAuth();
 }
 
 async function loadPlaylists() {
@@ -352,8 +364,160 @@ async function searchSpotify() {
 }
 
 // ============================================================
-// PLAYLIST IMPORT
+// SPOTIFY OAUTH
 // ============================================================
+let spotifyToken = null;
+
+const SPOTIFY_SCOPES = 'playlist-read-private playlist-read-collaborative';
+const REDIRECT_URI = window.location.origin + window.location.pathname;
+
+async function initSpotifyAuth() {
+  // Handle OAuth callback (when user returns from Spotify)
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('code')) {
+    const code = params.get('code');
+    // Clean URL
+    window.history.replaceState({}, document.title, window.location.pathname);
+    await exchangeCode(code);
+  }
+
+  // Try to load existing token from DB
+  await loadSpotifyToken();
+  renderSpotifyStatus();
+}
+
+async function exchangeCode(code) {
+  toast('Forbinder til Spotify...');
+  const { data, error } = await supa.functions.invoke('spotify-auth', {
+    body: { action: 'exchange', code, redirect_uri: REDIRECT_URI }
+  });
+  if (error || data.error) {
+    toast('Spotify-forbindelse fejlede: ' + (error?.message || data.error), 'error');
+    return;
+  }
+  await saveSpotifyToken(data);
+  toast('✓ Forbundet til Spotify');
+}
+
+async function saveSpotifyToken(tokenData) {
+  const expires_at = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
+  const tokenRecord = {
+    user_id: currentUser.id,
+    access_token: tokenData.access_token,
+    refresh_token: tokenData.refresh_token,
+    expires_at,
+    scope: tokenData.scope,
+    updated_at: new Date().toISOString(),
+  };
+  await supa.from('spotify_tokens').upsert(tokenRecord);
+  spotifyToken = { ...tokenRecord, expires_at: new Date(expires_at) };
+  renderSpotifyStatus();
+}
+
+async function loadSpotifyToken() {
+  const { data } = await supa.from('spotify_tokens').select('*').eq('user_id', currentUser.id).maybeSingle();
+  if (data) {
+    spotifyToken = { ...data, expires_at: new Date(data.expires_at) };
+  }
+}
+
+async function getValidSpotifyToken() {
+  if (!spotifyToken) return null;
+  // If expires within 60 seconds, refresh
+  if (spotifyToken.expires_at.getTime() - Date.now() < 60_000) {
+    const { data, error } = await supa.functions.invoke('spotify-auth', {
+      body: { action: 'refresh', refresh_token: spotifyToken.refresh_token }
+    });
+    if (error || data.error) {
+      toast('Spotify-token udløb. Log ind igen.', 'error');
+      spotifyToken = null;
+      renderSpotifyStatus();
+      return null;
+    }
+    // Spotify may not return new refresh_token; keep old one if missing
+    await saveSpotifyToken({
+      ...data,
+      refresh_token: data.refresh_token || spotifyToken.refresh_token,
+    });
+  }
+  return spotifyToken.access_token;
+}
+
+function loginToSpotify() {
+  const clientId = localStorage.getItem('tl_spotify_client_id');
+  if (!clientId) {
+    toast('Spotify Client ID mangler — log ud og indtast den i konfig', 'error');
+    return;
+  }
+  const url = new URL('https://accounts.spotify.com/authorize');
+  url.searchParams.set('client_id', clientId);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('redirect_uri', REDIRECT_URI);
+  url.searchParams.set('scope', SPOTIFY_SCOPES);
+  window.location.href = url.toString();
+}
+
+async function logoutSpotify() {
+  if (!confirm('Afbryd Spotify-forbindelse?')) return;
+  await supa.from('spotify_tokens').delete().eq('user_id', currentUser.id);
+  spotifyToken = null;
+  renderSpotifyStatus();
+  toast('Spotify-forbindelse afbrudt');
+}
+
+function renderSpotifyStatus() {
+  const el = document.getElementById('spotify-status');
+  const myBtn = document.getElementById('my-playlists-btn');
+  if (spotifyToken) {
+    el.innerHTML = `<button class="secondary" onclick="logoutSpotify()" style="padding:8px 14px; font-size:12px;">🟢 Spotify forbundet</button>`;
+    if (myBtn) myBtn.style.display = '';
+  } else {
+    el.innerHTML = `<button onclick="loginToSpotify()" style="padding:8px 14px; font-size:12px; background:#1DB954;">🎵 Log ind med Spotify</button>`;
+    if (myBtn) myBtn.style.display = 'none';
+  }
+}
+
+async function showMyPlaylists() {
+  const token = await getValidSpotifyToken();
+  if (!token) return toast('Log ind med Spotify først', 'error');
+
+  const preview = document.getElementById('import-preview');
+  preview.innerHTML = '<div class="empty-state" style="margin-top:14px;">Henter dine playlister...</div>';
+
+  const { data, error } = await supa.functions.invoke('spotify-search', {
+    body: { action: 'my_playlists', user_token: token }
+  });
+  if (error || data.error) {
+    preview.innerHTML = `<div class="empty-state">Fejl: ${error?.message || data.error}</div>`;
+    return;
+  }
+  const playlists = data.playlists || [];
+  preview.innerHTML = `
+    <div style="margin-top:16px; padding:14px; background:var(--panel-light); border-radius:10px; border:1px solid var(--border);">
+      <div style="font-weight:700; font-size:14px; margin-bottom:10px;">Dine playlister (${playlists.length})</div>
+      <div style="max-height:400px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">
+        ${playlists.map(p => `
+          <div class="result" style="padding:8px;">
+            <img src="${p.cover_url || ''}" style="width:40px; height:40px; border-radius:4px;" onerror="this.style.visibility='hidden'">
+            <div class="result-info">
+              <div class="result-title" style="font-size:13px;">${escapeHtml(p.name)}</div>
+              <div class="result-meta">${p.total} tracks · ${escapeHtml(p.owner || '')}</div>
+            </div>
+            <button class="tiny" onclick='loadPlaylistFromUrl("${p.url}")'>Vælg</button>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function loadPlaylistFromUrl(url) {
+  document.getElementById('import-url').value = url;
+  document.getElementById('import-preview').innerHTML = '';
+  previewPlaylist();
+}
+
+
 let importedPlaylist = null;
 
 function isLiveOrRemaster(t) {
@@ -369,9 +533,11 @@ async function previewPlaylist() {
   const preview = document.getElementById('import-preview');
   preview.innerHTML = '<div class="empty-state" style="margin-top:14px;">Henter playliste...</div>';
 
-  const { data, error } = await supa.functions.invoke('spotify-search', {
-    body: { action: 'playlist', url }
-  });
+  const userToken = await getValidSpotifyToken();
+  const body = { action: 'playlist', url };
+  if (userToken) body.user_token = userToken;
+
+  const { data, error } = await supa.functions.invoke('spotify-search', { body });
   if (error) {
     preview.innerHTML = `<div class="empty-state" style="margin-top:14px;">Fejl: ${error.message}</div>`;
     return;
