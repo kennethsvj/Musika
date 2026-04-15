@@ -166,6 +166,26 @@
     </div>
   </div>
 
+  <!-- Spotify playlist import -->
+  <div class="panel" id="import-panel">
+    <h2>Importér fra Spotify-playliste</h2>
+    <p style="font-size:12px; color:var(--muted); margin-bottom:10px;">
+      Paste URL til en offentlig Spotify-playliste, fx
+      <code style="background:rgba(0,0,0,0.3); padding:1px 5px; border-radius:3px;">https://open.spotify.com/playlist/...</code>
+    </p>
+    <div class="row">
+      <input id="import-url" placeholder="Spotify playlist URL" onkeydown="if(event.key==='Enter') previewPlaylist()">
+      <button onclick="previewPlaylist()">Hent</button>
+    </div>
+    <div style="margin-top:10px; display:flex; gap:14px; align-items:center; font-size:13px; color:var(--muted);">
+      <label style="display:flex; gap:6px; align-items:center; text-transform:none; letter-spacing:0; margin:0; cursor:pointer;">
+        <input type="checkbox" id="filter-live" checked style="width:auto; margin:0;">
+        Filtrér live-versioner og remasters fra
+      </label>
+    </div>
+    <div id="import-preview"></div>
+  </div>
+
   <!-- Spotify search -->
   <div class="panel" id="search-panel">
     <h2>Søg på Spotify</h2>
@@ -321,13 +341,148 @@ async function searchSpotify() {
   results.innerHTML = '<div class="empty-state">Søger...</div>';
 
   const { data, error } = await supa.functions.invoke('spotify-search', {
-    body: { query, limit: 10 }
+    body: { action: 'search', query, limit: 10 }
   });
   if (error) {
     results.innerHTML = `<div class="empty-state">Fejl: ${error.message}</div>`;
     return;
   }
   renderSearchResults(data.tracks || []);
+}
+
+// ============================================================
+// PLAYLIST IMPORT
+// ============================================================
+let importedPlaylist = null;
+
+function isLiveOrRemaster(t) {
+  const text = `${t.title} ${t.album || ''}`.toLowerCase();
+  return /\b(live|remaster|remastered|acoustic version|demo|karaoke|instrumental)\b/.test(text)
+      || /- live\b/.test(text)
+      || /\(live/.test(text);
+}
+
+async function previewPlaylist() {
+  const url = document.getElementById('import-url').value.trim();
+  if (!url) return;
+  const preview = document.getElementById('import-preview');
+  preview.innerHTML = '<div class="empty-state" style="margin-top:14px;">Henter playliste...</div>';
+
+  const { data, error } = await supa.functions.invoke('spotify-search', {
+    body: { action: 'playlist', url }
+  });
+  if (error) {
+    preview.innerHTML = `<div class="empty-state" style="margin-top:14px;">Fejl: ${error.message}</div>`;
+    return;
+  }
+  if (data.error) {
+    preview.innerHTML = `<div class="empty-state" style="margin-top:14px;">Fejl: ${data.error}</div>`;
+    return;
+  }
+
+  importedPlaylist = data.playlist;
+  renderImportPreview();
+}
+
+function renderImportPreview() {
+  if (!importedPlaylist) return;
+  const filterLive = document.getElementById('filter-live').checked;
+  const all = importedPlaylist.tracks;
+  const filtered = filterLive ? all.filter(t => !isLiveOrRemaster(t)) : all;
+  const removed = all.length - filtered.length;
+
+  const preview = document.getElementById('import-preview');
+  preview.innerHTML = `
+    <div style="margin-top:16px; padding:14px; background:var(--panel-light); border-radius:10px; border:1px solid var(--border);">
+      <div style="display:flex; gap:14px; align-items:center;">
+        ${importedPlaylist.cover_url ? `<img src="${importedPlaylist.cover_url}" style="width:60px; height:60px; border-radius:8px;">` : ''}
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:700; font-size:15px;">${escapeHtml(importedPlaylist.name)}</div>
+          <div style="font-size:12px; color:var(--muted);">af ${escapeHtml(importedPlaylist.owner || 'ukendt')} · ${all.length} tracks${removed > 0 ? ` · ${removed} filtreret fra` : ''}</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:14px;">
+        <button onclick="importAllFiltered()">⬇️ Importér alle ${filtered.length}</button>
+        <button class="secondary" onclick="showPickList()">Vælg manuelt</button>
+      </div>
+      <div id="pick-list"></div>
+    </div>
+  `;
+}
+
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'filter-live') renderImportPreview();
+});
+
+function showPickList() {
+  const filterLive = document.getElementById('filter-live').checked;
+  const tracks = filterLive
+    ? importedPlaylist.tracks.filter(t => !isLiveOrRemaster(t))
+    : importedPlaylist.tracks;
+  const pl = document.getElementById('pick-list');
+  pl.innerHTML = `
+    <div style="max-height:400px; overflow-y:auto; margin-top:14px; display:flex; flex-direction:column; gap:6px;">
+      ${tracks.map((t, i) => `
+        <div class="result" style="padding:8px;">
+          <img src="${t.cover_url || ''}" style="width:36px; height:36px; border-radius:4px;" onerror="this.style.visibility='hidden'">
+          <div class="result-info">
+            <div class="result-title" style="font-size:13px;">${escapeHtml(t.title)}</div>
+            <div class="result-meta">${escapeHtml(t.artist)} · ${t.year || '?'}</div>
+          </div>
+          <button class="tiny" onclick='addTrack(${JSON.stringify(t).replace(/'/g, "&#39;")})'>+</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function importAllFiltered() {
+  if (!currentPlaylist) return toast('Vælg en playliste først', 'error');
+  const filterLive = document.getElementById('filter-live').checked;
+  const tracks = filterLive
+    ? importedPlaylist.tracks.filter(t => !isLiveOrRemaster(t))
+    : importedPlaylist.tracks;
+
+  if (tracks.length === 0) return toast('Ingen tracks at importere', 'error');
+  if (!confirm(`Importér ${tracks.length} tracks til "${currentPlaylist.name}"?`)) return;
+
+  const btn = document.querySelector('#import-preview button');
+  if (btn) { btn.disabled = true; btn.textContent = 'Importerer...'; }
+
+  let success = 0, failed = 0;
+  for (let i = 0; i < tracks.length; i++) {
+    const t = tracks[i];
+    if (!t.year) { failed++; continue; }
+    try {
+      const { data: track } = await supa.from('tracks').upsert({
+        spotify_id: t.spotify_id, artist: t.artist, title: t.title, year: t.year,
+        album: t.album, cover_url: t.cover_url, preview_url: t.preview_url,
+        duration_ms: t.duration_ms, added_by: currentUser.id,
+      }, { onConflict: 'spotify_id' }).select().single();
+
+      if (track) {
+        await supa.from('playlist_tracks').upsert({
+          playlist_id: currentPlaylist.id, track_id: track.id,
+        });
+        const { data: existingCard } = await supa.from('cards')
+          .select('id').eq('track_id', track.id).eq('playlist_id', currentPlaylist.id).maybeSingle();
+        if (!existingCard) {
+          const cardId = Math.random().toString(36).slice(2, 8);
+          await supa.from('cards').insert({
+            id: cardId, track_id: track.id, playlist_id: currentPlaylist.id
+          });
+        }
+        success++;
+      }
+      if (btn) btn.textContent = `Importerer... ${i+1}/${tracks.length}`;
+    } catch (e) { failed++; }
+  }
+
+  toast(`✓ Importerede ${success} tracks${failed > 0 ? ` (${failed} fejlede)` : ''}`);
+  document.getElementById('import-preview').innerHTML = '';
+  document.getElementById('import-url').value = '';
+  importedPlaylist = null;
+  await loadTracks();
 }
 
 function renderSearchResults(tracks) {
