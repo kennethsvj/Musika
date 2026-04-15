@@ -62,15 +62,7 @@
   <h1>🎵 <span>Musika</span></h1>
   <p class="subtitle">Indtast spil-kode for at joine</p>
 
-  <div class="panel" id="config-panel">
-    <label>Supabase URL</label>
-    <input id="cfg-url" placeholder="https://xxxxx.supabase.co">
-    <label style="margin-top:10px;">Supabase anon key</label>
-    <input id="cfg-key" placeholder="eyJhbGc...">
-    <button style="margin-top:14px;" onclick="saveConfig()">Gem</button>
-  </div>
-
-  <div class="panel hidden" id="join-panel">
+  <div class="panel">
     <label>Spil-kode</label>
     <input id="game-code-input" class="code-input" placeholder="ABCD" maxlength="4" autocapitalize="characters">
     <label style="margin-top:14px;">Dit navn</label>
@@ -131,30 +123,23 @@
 </div>
 
 <script>
-let supa = null, currentGame = null, currentPlayer = null, players = [];
+// ============================================================
+// SUPABASE CONFIG — hardcoded (anon key is safe in frontend)
+// ⚠️ REPLACE THESE TWO VALUES WITH YOUR OWN BEFORE DEPLOYING
+// ============================================================
+const SUPABASE_URL = 'https://wfbzuzuzpyhnvjrhajnp.supabase.co';
+const SUPABASE_ANON_KEY = 'PASTE_YOUR_ANON_KEY_HERE';
 
-// ============================================================
-// CONFIG (same pattern as admin/host)
-// ============================================================
-function loadConfig() {
-  const url = localStorage.getItem('tl_supa_url');
-  const key = localStorage.getItem('tl_supa_key');
-  if (url && key) {
-    supa = window.supabase.createClient(url, key);
-    document.getElementById('config-panel').classList.add('hidden');
-    document.getElementById('join-panel').classList.remove('hidden');
-    // Auto-fill code from URL ?code=ABCD
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('code')) document.getElementById('game-code-input').value = params.get('code').toUpperCase();
-  }
-}
-function saveConfig() {
-  const url = document.getElementById('cfg-url').value.trim();
-  const key = document.getElementById('cfg-key').value.trim();
-  if (!url || !key) return toast('Udfyld begge', 'error');
-  localStorage.setItem('tl_supa_url', url);
-  localStorage.setItem('tl_supa_key', key);
-  loadConfig();
+let supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let currentGame = null, currentPlayer = null, players = [];
+
+// Auto-fill code from URL ?code=ABCD
+const params = new URLSearchParams(window.location.search);
+if (params.has('code')) {
+  document.addEventListener('DOMContentLoaded', () => {
+    const input = document.getElementById('game-code-input');
+    if (input) input.value = params.get('code').toUpperCase();
+  });
 }
 
 // ============================================================
@@ -323,9 +308,8 @@ function toast(msg, type) {
   setTimeout(() => el.classList.remove('show'), 2400);
 }
 
-// Init
-loadConfig();
-if (supa) tryRestoreSession();
+// Init — try to restore session if user reloads page
+tryRestoreSession();
 </script>
 </body>
 </html>
