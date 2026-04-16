@@ -281,12 +281,11 @@
   </div>
 
   <div class="bottom-controls">
-    <button class="primary" onclick="endSong()">✓ Afslut sang (vis facit)</button>
+    <button class="primary" onclick="endSong()">✓ Afslut sang</button>
     <div class="btn-row">
       <button class="secondary" id="pause-btn" onclick="togglePause()">⏸ Pause</button>
       <button class="secondary" onclick="restartTrack()">↺ Start forfra</button>
     </div>
-    <button class="secondary" onclick="closePlayingOverlay()">✕ Luk (uden facit)</button>
   </div>
 </div>
 
@@ -586,14 +585,6 @@ function showPlayingOverlay() {
   startPlaybackTimer();
 }
 
-function closePlayingOverlay() {
-  if (!confirm('Luk uden at vise facit? Sangen stopper og turen går videre.')) return;
-  stopPlaybackTimer();
-  pauseTrack();
-  document.getElementById('playing-overlay').classList.add('hidden');
-  nextTurn();
-}
-
 function startPlaybackTimer() {
   stopPlaybackTimer();
   playbackTimer = setInterval(updateTimerDisplay, 200);
@@ -746,19 +737,19 @@ async function pauseTrack() {
 // ============================================================
 function showReveal() {
   document.getElementById('scan-section').classList.add('hidden');
-  document.getElementById('playing-section').classList.add('hidden');
   document.getElementById('reveal-section').classList.remove('hidden');
+  document.getElementById('playing-overlay').classList.add('hidden');
 
   document.getElementById('reveal-artist').textContent = currentTrack.artist;
   document.getElementById('reveal-year').textContent = currentTrack.year;
   document.getElementById('reveal-title').textContent = currentTrack.title;
 
   const active = players.find(p => p.id === currentGame.current_player_id);
-  document.getElementById('scoring-player').textContent = active ? active.name : '(ingen)';
+  document.getElementById('scoring-player').textContent = active ? active.name : '(ingen spiller)';
 
   const buttons = document.getElementById('scoring-buttons');
   if (!active) {
-    buttons.innerHTML = `<button class="secondary" style="grid-column: span 2;" onclick="nextTurn()">Næste kort</button>`;
+    buttons.innerHTML = `<button class="secondary" style="grid-column: span 2;" onclick="nextTurn()">Næste kort →</button>`;
   } else {
     buttons.innerHTML = `
       <button class="success" onclick="awardPoints(0)">0 point</button>
