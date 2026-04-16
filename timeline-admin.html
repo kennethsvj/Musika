@@ -414,7 +414,7 @@ async function searchSpotify() {
 // ============================================================
 let spotifyToken = null;
 
-const SPOTIFY_SCOPES = 'playlist-read-private playlist-read-collaborative user-modify-playback-state user-read-playback-state';
+const SPOTIFY_SCOPES = 'playlist-read-private playlist-read-collaborative user-modify-playback-state user-read-playback-state streaming';
 const REDIRECT_URI = window.location.origin + window.location.pathname;
 
 async function initSpotifyAuth() {
