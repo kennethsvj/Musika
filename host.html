@@ -173,12 +173,6 @@
     font-weight: 700; text-transform: uppercase;
   }
 
-  /* Card reveal */
-  .reveal-card { background: linear-gradient(135deg, #6b2d8f 0%, #1a0b3d 100%); padding: 22px; border-radius: 14px; text-align: center; color: white; margin-bottom: 14px; }
-  .reveal-card .artist { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
-  .reveal-card .year { font-size: 56px; font-weight: 900; letter-spacing: -2px; line-height: 1; margin: 8px 0; }
-  .reveal-card .title { font-size: 14px; font-style: italic; opacity: 0.9; }
-
   .scoring-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .scoring-buttons button { padding: 16px 12px; font-size: 14px; }
 
@@ -276,17 +270,10 @@
     </div>
   </div>
 
-  <!-- Reveal + scoring -->
-  <div id="reveal-section" class="hidden">
-    <div class="reveal-card">
-      <div style="font-size:11px; color:rgba(255,255,255,0.6); text-transform:uppercase; letter-spacing:2px; margin-bottom:8px;">Sang</div>
-      <div class="artist" id="reveal-artist"></div>
-      <div class="year" id="reveal-year"></div>
-      <div class="title" id="reveal-title"></div>
-    </div>
-
-    <div class="panel">
-      <h2 style="font-size:14px; margin-bottom:12px;">Vurdér <span id="scoring-player"></span>'s svar</h2>
+  <!-- Scoring (no reveal — the physical card is the reveal) -->
+  <div id="scoring-section" class="hidden">
+    <div class="panel" style="text-align:center;">
+      <h2 style="font-size:16px; margin-bottom:14px;">Point til <span id="scoring-player" style="color:var(--accent-2);"></span></h2>
       <div class="scoring-buttons" id="scoring-buttons"></div>
     </div>
   </div>
@@ -391,6 +378,8 @@ async function showCreate() {
   const { data: tok } = await supa.from('spotify_tokens').select('*').eq('user_id', currentUser.id).maybeSingle();
   if (tok) spotifyToken = { ...tok, expires_at: new Date(tok.expires_at) };
   else toast('Forbind Spotify via admin-siden først', 'error');
+  // Init Web Playback SDK (works on desktop, no-op on mobile)
+  await initWebPlaybackSDK();
   await refreshDevices();
 }
 
@@ -545,7 +534,7 @@ function checkWinner() {
 async function endGame() {
   if (!confirm('Afslut spillet? Alle spillere ser slutstillingen.')) return;
   await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
-  await pauseTrack();
+  await stopTrack();
   await releaseWakeLock();
   toast('Spillet er afsluttet');
   setTimeout(() => location.reload(), 1500);
@@ -567,7 +556,7 @@ async function toggleScanner() {
 
 function startScanner() {
   document.getElementById('scan-section').classList.remove('hidden');
-  document.getElementById('reveal-section').classList.add('hidden');
+  document.getElementById('scoring-section').classList.add('hidden');
   document.getElementById('playing-overlay').classList.add('hidden');
   const btn = document.getElementById('scanner-toggle-btn');
   if (btn) btn.textContent = 'Stop kamera';
@@ -613,7 +602,7 @@ async function onScanned(decoded) {
 // ============================================================
 function showPlayingOverlay() {
   document.getElementById('scan-section').classList.add('hidden');
-  document.getElementById('reveal-section').classList.add('hidden');
+  document.getElementById('scoring-section').classList.add('hidden');
   document.getElementById('playing-overlay').classList.remove('hidden');
   document.getElementById('playing-overlay').classList.remove('paused');
   document.getElementById('disc').classList.remove('paused');
@@ -644,12 +633,8 @@ function updateTimerDisplay() {
 }
 
 async function togglePause() {
-  const token = await getValidSpotifyToken();
-  if (!token) return;
   if (isPaused) {
-    await fetch('https://api.spotify.com/v1/me/player/play', {
-      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-    });
+    await resumeTrack();
     if (pauseStartTime) totalPausedMs += Date.now() - pauseStartTime;
     pauseStartTime = null;
     isPaused = false;
@@ -668,14 +653,173 @@ async function togglePause() {
 
 async function endSong() {
   stopPlaybackTimer();
-  await pauseTrack();
+  await stopTrack();
   document.getElementById('playing-overlay').classList.add('hidden');
-  showReveal();
+  showScoring();
 }
 
 // ============================================================
 // SPOTIFY PLAYBACK
+// Desktop: Web Playback SDK (full songs, embedded in browser)
+// Mobile: Web API with robust retry + mute-instead-of-pause
 // ============================================================
+let webPlayer = null;
+let webPlayerDeviceId = null;
+let webPlayerReady = false;
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+async function initWebPlaybackSDK() {
+  if (isMobile) { console.log('Mobile — using Web API'); return; }
+  const token = await getValidSpotifyToken();
+  if (!token) return;
+
+  if (!document.getElementById('spotify-sdk')) {
+    const script = document.createElement('script');
+    script.id = 'spotify-sdk';
+    script.src = 'https://sdk.scdn.co/spotify-player.js';
+    document.body.appendChild(script);
+  }
+
+  window.onSpotifyWebPlaybackSDKReady = () => {
+    webPlayer = new Spotify.Player({
+      name: 'Musika Host',
+      getOAuthToken: async cb => { cb(await getValidSpotifyToken()); },
+      volume: 1.0,
+    });
+    webPlayer.addListener('ready', ({ device_id }) => {
+      webPlayerDeviceId = device_id;
+      webPlayerReady = true;
+      toast('Spotify-afspiller klar');
+    });
+    webPlayer.addListener('not_ready', () => { webPlayerReady = false; });
+    webPlayer.addListener('initialization_error', ({ message }) => {
+      console.warn('SDK init error:', message);
+    });
+    webPlayer.connect();
+  };
+}
+
+// --- Robust mobile playback ---
+async function findAndTransferDevice(token) {
+  const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!r.ok) return null;
+  const devices = (await r.json()).devices || [];
+  if (devices.length === 0) return null;
+
+  const savedId = selectedDeviceId || localStorage.getItem('tl_device_id');
+  const device = devices.find(d => d.id === savedId) || devices.find(d => d.is_active) || devices[0];
+
+  // Always transfer to wake up the device
+  await fetch('https://api.spotify.com/v1/me/player', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_ids: [device.id], play: false }),
+  });
+  return device.id;
+}
+
+async function tryPlay(token, deviceId, spotifyId) {
+  const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uris: [`spotify:track:${spotifyId}`] }),
+  });
+  return r.ok;
+}
+
+async function playTrack(spotifyId) {
+  const token = await getValidSpotifyToken();
+  if (!token) { toast('Ingen Spotify-forbindelse', 'error'); return; }
+
+  // === DESKTOP: Web Playback SDK ===
+  if (webPlayerReady && webPlayerDeviceId) {
+    if (await tryPlay(token, webPlayerDeviceId, spotifyId)) return;
+  }
+
+  // === MOBILE: Web API with retry ===
+  const delays = [300, 1000, 2000];
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    const deviceId = await findAndTransferDevice(token);
+    if (!deviceId) {
+      if (attempt === delays.length - 1) {
+        toast('Ingen Spotify-enhed fundet. Åbn Spotify-app og tryk afspil i 5 sek.', 'error');
+        return;
+      }
+      await new Promise(r => setTimeout(r, delays[attempt]));
+      continue;
+    }
+
+    await new Promise(r => setTimeout(r, delays[attempt]));
+
+    if (await tryPlay(token, deviceId, spotifyId)) {
+      console.log(`Playback started (attempt ${attempt + 1})`);
+      // Restore volume (in case we muted earlier)
+      await fetch('https://api.spotify.com/v1/me/player/volume?volume_percent=100', {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+      return;
+    }
+    console.warn(`Play attempt ${attempt + 1} failed, retrying...`);
+  }
+
+  toast('Kunne ikke afspille. Åbn Spotify, spil noget kort, og prøv igen.', 'error');
+}
+
+// Pause = MUTE on mobile (keeps audio session alive so iOS doesn't kill Spotify)
+// Pause = real pause on desktop (SDK handles it)
+async function pauseTrack() {
+  if (webPlayer && webPlayerReady) {
+    await webPlayer.pause();
+    return;
+  }
+  const token = await getValidSpotifyToken();
+  if (!token) return;
+  if (isMobile) {
+    // Mute instead of pause — keeps Spotify alive on iOS
+    await fetch('https://api.spotify.com/v1/me/player/volume?volume_percent=0', {
+      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  } else {
+    await fetch('https://api.spotify.com/v1/me/player/pause', {
+      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  }
+}
+
+async function resumeTrack() {
+  if (webPlayer && webPlayerReady) {
+    await webPlayer.resume();
+    return;
+  }
+  const token = await getValidSpotifyToken();
+  if (!token) return;
+  if (isMobile) {
+    // Unmute — song was still playing silently
+    await fetch('https://api.spotify.com/v1/me/player/volume?volume_percent=100', {
+      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  } else {
+    await fetch('https://api.spotify.com/v1/me/player/play', {
+      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  }
+}
+
+// Full stop — called when ending a song (actually pauses on mobile too, it's OK since next song re-transfers)
+async function stopTrack() {
+  if (webPlayer && webPlayerReady) {
+    await webPlayer.pause();
+    return;
+  }
+  const token = await getValidSpotifyToken();
+  if (!token) return;
+  // Real pause here is fine — next playTrack will re-transfer anyway
+  await fetch('https://api.spotify.com/v1/me/player/pause', {
+    method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => {});
+}
 async function getValidSpotifyToken() {
   if (!spotifyToken) return null;
   if (spotifyToken.expires_at.getTime() - Date.now() < 60_000) {
@@ -696,79 +840,16 @@ async function getValidSpotifyToken() {
   return spotifyToken.access_token;
 }
 
-async function playTrack(spotifyId) {
-  const token = await getValidSpotifyToken();
-  if (!token) { toast('Ingen Spotify-forbindelse', 'error'); return; }
-
-  // Use the pre-selected device
-  let deviceId = selectedDeviceId || localStorage.getItem('tl_device_id');
-
-  // If no saved device, fall back to first available
-  if (!deviceId) {
-    const devRes = await fetch('https://api.spotify.com/v1/me/player/devices', {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const devices = (await devRes.json()).devices || [];
-    if (devices.length === 0) {
-      toast('⚠️ Åbn Spotify-app på en enhed og genopret spillet', 'error');
-      return;
-    }
-    deviceId = (devices.find(d => d.is_active) || devices[0]).id;
-  }
-
-  console.log('Playing on device:', deviceId);
-
-  // Transfer playback to this device (wakes it up)
-  const transferRes = await fetch('https://api.spotify.com/v1/me/player', {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ device_ids: [deviceId], play: false }),
-  });
-  console.log('Transfer response:', transferRes.status);
-  await new Promise(r => setTimeout(r, 500));
-
-  // Start playback
-  const playRes = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ uris: [`spotify:track:${spotifyId}`] }),
-  });
-
-  if (!playRes.ok) {
-    const err = await playRes.text();
-    console.error('Spotify play error:', playRes.status, err);
-    if (playRes.status === 404) {
-      toast('Spotify-enhed inaktiv. Åbn Spotify, tryk afspil et øjeblik, og prøv igen.', 'error');
-    } else if (playRes.status === 403) {
-      toast('Kræver Spotify Premium.', 'error');
-    } else {
-      toast(`Afspilning fejlede (${playRes.status})`, 'error');
-    }
-  }
-}
-
-async function pauseTrack() {
-  const token = await getValidSpotifyToken();
-  if (!token) return;
-  await fetch('https://api.spotify.com/v1/me/player/pause', {
-    method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-  }).catch(() => {});
-}
-
 // ============================================================
-// REVEAL & SCORING
+// SCORING (no reveal — physical card is the reveal)
 // ============================================================
-function showReveal() {
+function showScoring() {
   document.getElementById('scan-section').classList.add('hidden');
-  document.getElementById('reveal-section').classList.remove('hidden');
+  document.getElementById('scoring-section').classList.remove('hidden');
   document.getElementById('playing-overlay').classList.add('hidden');
 
-  document.getElementById('reveal-artist').textContent = currentTrack.artist;
-  document.getElementById('reveal-year').textContent = currentTrack.year;
-  document.getElementById('reveal-title').textContent = currentTrack.title;
-
   const active = players.find(p => p.id === currentGame.current_player_id);
-  document.getElementById('scoring-player').textContent = active ? active.name : '(ingen spiller)';
+  document.getElementById('scoring-player').textContent = active ? active.name : '';
 
   const buttons = document.getElementById('scoring-buttons');
   if (!active) {
