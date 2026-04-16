@@ -52,6 +52,8 @@
   .player-row.active { border: 1px solid var(--accent-2); }
   .player-name { font-weight: 600; }
   .player-score { color: var(--accent-2); font-weight: 700; font-variant-numeric: tabular-nums; }
+  button.danger { background: #d32f2f; }
+  .bottom-actions { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
 </style>
 </head>
 <body>
@@ -81,6 +83,9 @@
   <div class="panel">
     <h2 style="font-size:16px; margin-bottom:10px;">Venter på at host starter spillet...</h2>
     <div id="lobby-players"></div>
+    <div class="bottom-actions">
+      <button class="danger" onclick="leaveGame()">Forlad spil</button>
+    </div>
   </div>
 </div>
 
@@ -105,6 +110,9 @@
     <p style="font-size:13px; line-height:1.5; color:var(--muted);">
       Når det er din tur scanner host et kort. Sangen afspilles via højttalere. Du skal placere kortet i din mentale tidslinje (eller på bordet) og — afhængigt af spiltilstand — gætte artist og titel. Host vurderer dit svar og tildeler point.
     </p>
+    <div class="bottom-actions">
+      <button class="danger" onclick="leaveGame()">Forlad spil</button>
+    </div>
   </div>
 </div>
 
@@ -128,10 +136,41 @@
 // ⚠️ REPLACE THESE TWO VALUES WITH YOUR OWN BEFORE DEPLOYING
 // ============================================================
 const SUPABASE_URL = 'https://wfbzuzuzpyhnvjrhajnp.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndmYnp1enV6cHlobnZqcmhham5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDQxODgsImV4cCI6MjA5MTgyMDE4OH0.ERpe5nHFfd9r6lbEZ9bkQzkkHvTj-k-u4G9N1ZI3N2w';
+const SUPABASE_ANON_KEY = 'PASTE_YOUR_ANON_KEY_HERE';
 
 let supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let currentGame = null, currentPlayer = null, players = [];
+let wakeLock = null;
+
+// ============================================================
+// WAKE LOCK — keep screen on during game
+// ============================================================
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+    }
+  } catch (e) { console.warn('Wake lock failed:', e); }
+}
+async function releaseWakeLock() {
+  if (wakeLock) { try { await wakeLock.release(); } catch(e){} wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && currentPlayer) requestWakeLock();
+});
+
+// ============================================================
+// LEAVE GAME
+// ============================================================
+async function leaveGame() {
+  if (!confirm('Forlad spillet?')) return;
+  if (currentPlayer) {
+    await supa.from('players').delete().eq('id', currentPlayer.id);
+  }
+  await releaseWakeLock();
+  sessionStorage.removeItem('musika_player');
+  location.reload();
+}
 
 // Auto-fill code from URL ?code=ABCD
 const params = new URLSearchParams(window.location.search);
@@ -169,6 +208,7 @@ async function joinGame() {
 }
 
 async function onJoined() {
+  await requestWakeLock();
   if (currentGame.status === 'lobby') showLobby();
   else if (currentGame.status === 'playing') showGame();
   else showFinished();
