@@ -116,28 +116,23 @@
   }
   .disc .rings-container {
     position: absolute; inset: 12%;
-    animation: rotate 18s linear infinite;
   }
-  .disc.paused .rings-container { animation-play-state: paused; }
-  @keyframes rotate {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
+  @keyframes rotate { from { transform: translate(-50%,-50%) rotate(0deg); } to { transform: translate(-50%,-50%) rotate(360deg); } }
+  @keyframes rotateR { from { transform: translate(-50%,-50%) rotate(360deg); } to { transform: translate(-50%,-50%) rotate(0deg); } }
+  .disc.paused .ring { animation-play-state: paused !important; }
   .disc .ring {
     position: absolute; top: 50%; left: 50%;
     border-radius: 50%; border-style: solid; border-width: 4px;
-    transform: translate(-50%, -50%);
   }
   .disc .ring.broken {
-    /* clip to show only part of the ring for the "broken arc" look */
     border-right-color: transparent !important;
     border-bottom-color: transparent !important;
   }
-  .disc .ring.r1 { width: 100%; height: 100%; border-color: #ff2d6f; }
-  .disc .ring.r2 { width: 86%; height: 86%; border-color: #ffd400; transform: translate(-50%, -50%) rotate(60deg); }
-  .disc .ring.r3 { width: 72%; height: 72%; border-color: #00c2ff; transform: translate(-50%, -50%) rotate(120deg); }
-  .disc .ring.r4 { width: 58%; height: 58%; border-color: #ff8c00; transform: translate(-50%, -50%) rotate(180deg); }
-  .disc .ring.r5 { width: 44%; height: 44%; border-color: #aa55ff; transform: translate(-50%, -50%) rotate(240deg); }
+  .disc .ring.r1 { width: 100%; height: 100%; border-color: #ff2d6f; animation: rotate 20s linear infinite; }
+  .disc .ring.r2 { width: 86%; height: 86%; border-color: #ffd400; border-left-color: transparent !important; border-bottom-color: transparent !important; border-right-color: #ffd400 !important; animation: rotateR 14s linear infinite; }
+  .disc .ring.r3 { width: 72%; height: 72%; border-color: #00c2ff; animation: rotate 10s linear infinite; }
+  .disc .ring.r4 { width: 58%; height: 58%; border-color: #ff8c00; border-top-color: transparent !important; border-left-color: transparent !important; border-right-color: #ff8c00 !important; border-bottom-color: #ff8c00 !important; animation: rotateR 16s linear infinite; }
+  .disc .ring.r5 { width: 44%; height: 44%; border-color: #aa55ff; animation: rotate 8s linear infinite; }
 
   .disc .center-btn {
     position: absolute; top: 50%; left: 50%;
@@ -296,11 +291,11 @@
   <div class="center-content">
     <div class="disc" id="disc">
       <div class="rings-container">
-        <div class="ring r1"></div>
-        <div class="ring r2"></div>
-        <div class="ring r3"></div>
-        <div class="ring r4"></div>
-        <div class="ring r5"></div>
+        <div class="ring broken r1"></div>
+        <div class="ring broken r2"></div>
+        <div class="ring broken r3"></div>
+        <div class="ring broken r4"></div>
+        <div class="ring broken r5"></div>
       </div>
       <button class="center-btn" id="pause-btn" onclick="togglePause()">⏸</button>
     </div>
@@ -666,6 +661,7 @@ async function endSong() {
 let webPlayer = null;
 let webPlayerDeviceId = null;
 let webPlayerReady = false;
+let activeDeviceId = null; // Track which device we're playing on
 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
 async function initWebPlaybackSDK() {
@@ -709,9 +705,10 @@ async function findAndTransferDevice(token) {
   if (devices.length === 0) return null;
 
   const savedId = selectedDeviceId || localStorage.getItem('tl_device_id');
-  const device = devices.find(d => d.id === savedId) || devices.find(d => d.is_active) || devices[0];
+  // ALWAYS prefer saved device — prevents Bluetooth from hijacking
+  const device = devices.find(d => d.id === savedId) || devices[0];
 
-  // Always transfer to wake up the device
+  // Force transfer every time (even if already active)
   await fetch('https://api.spotify.com/v1/me/player', {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -735,7 +732,10 @@ async function playTrack(spotifyId) {
 
   // === DESKTOP: Web Playback SDK ===
   if (webPlayerReady && webPlayerDeviceId) {
-    if (await tryPlay(token, webPlayerDeviceId, spotifyId)) return;
+    if (await tryPlay(token, webPlayerDeviceId, spotifyId)) {
+      activeDeviceId = webPlayerDeviceId;
+      return;
+    }
   }
 
   // === MOBILE: Web API with retry ===
@@ -754,9 +754,10 @@ async function playTrack(spotifyId) {
     await new Promise(r => setTimeout(r, delays[attempt]));
 
     if (await tryPlay(token, deviceId, spotifyId)) {
-      console.log(`Playback started (attempt ${attempt + 1})`);
-      // Restore volume (in case we muted earlier)
-      await fetch('https://api.spotify.com/v1/me/player/volume?volume_percent=100', {
+      activeDeviceId = deviceId;
+      console.log(`Playback started on ${deviceId} (attempt ${attempt + 1})`);
+      // Restore volume
+      await fetch(`https://api.spotify.com/v1/me/player/volume?volume_percent=100&device_id=${deviceId}`, {
         method: 'PUT', headers: { Authorization: `Bearer ${token}` },
       }).catch(() => {});
       return;
@@ -767,56 +768,41 @@ async function playTrack(spotifyId) {
   toast('Kunne ikke afspille. Åbn Spotify, spil noget kort, og prøv igen.', 'error');
 }
 
-// Pause = MUTE on mobile (keeps audio session alive so iOS doesn't kill Spotify)
-// Pause = real pause on desktop (SDK handles it)
 async function pauseTrack() {
-  if (webPlayer && webPlayerReady) {
-    await webPlayer.pause();
-    return;
-  }
+  if (webPlayer && webPlayerReady) { await webPlayer.pause(); return; }
   const token = await getValidSpotifyToken();
-  if (!token) return;
+  if (!token || !activeDeviceId) return;
   if (isMobile) {
-    // Mute instead of pause — keeps Spotify alive on iOS
-    await fetch('https://api.spotify.com/v1/me/player/volume?volume_percent=0', {
+    await fetch(`https://api.spotify.com/v1/me/player/volume?volume_percent=0&device_id=${activeDeviceId}`, {
       method: 'PUT', headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
   } else {
-    await fetch('https://api.spotify.com/v1/me/player/pause', {
+    await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
       method: 'PUT', headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
   }
 }
 
 async function resumeTrack() {
-  if (webPlayer && webPlayerReady) {
-    await webPlayer.resume();
-    return;
-  }
+  if (webPlayer && webPlayerReady) { await webPlayer.resume(); return; }
   const token = await getValidSpotifyToken();
-  if (!token) return;
+  if (!token || !activeDeviceId) return;
   if (isMobile) {
-    // Unmute — song was still playing silently
-    await fetch('https://api.spotify.com/v1/me/player/volume?volume_percent=100', {
+    await fetch(`https://api.spotify.com/v1/me/player/volume?volume_percent=100&device_id=${activeDeviceId}`, {
       method: 'PUT', headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
   } else {
-    await fetch('https://api.spotify.com/v1/me/player/play', {
+    await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${activeDeviceId}`, {
       method: 'PUT', headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
   }
 }
 
-// Full stop — called when ending a song (actually pauses on mobile too, it's OK since next song re-transfers)
 async function stopTrack() {
-  if (webPlayer && webPlayerReady) {
-    await webPlayer.pause();
-    return;
-  }
+  if (webPlayer && webPlayerReady) { await webPlayer.pause(); return; }
   const token = await getValidSpotifyToken();
-  if (!token) return;
-  // Real pause here is fine — next playTrack will re-transfer anyway
-  await fetch('https://api.spotify.com/v1/me/player/pause', {
+  if (!token || !activeDeviceId) return;
+  await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
     method: 'PUT', headers: { Authorization: `Bearer ${token}` },
   }).catch(() => {});
 }
