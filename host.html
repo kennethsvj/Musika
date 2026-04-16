@@ -11,7 +11,7 @@
   :root {
     --bg: #0a0a0f; --panel: #15151f; --panel-light: #1f1f2e; --border: #2a2a3a;
     --text: #e8e8f0; --muted: #8080a0; --accent: #ff3864; --accent-2: #00d4ff;
-    --success: #00d97e; --spotify: #1DB954;
+    --success: #00d97e; --spotify: #1DB954; --warning: #ff9500;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -35,10 +35,12 @@
     font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit;
     width: 100%;
   }
-  button:disabled { opacity: 0.5; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
   button.secondary { background: var(--panel-light); border: 1px solid var(--border); color: var(--text); }
   button.spotify { background: var(--spotify); }
   button.success { background: var(--success); color: black; }
+  button.warning { background: var(--warning); color: black; }
+  button.danger { background: #d32f2f; }
 
   .hidden { display: none !important; }
   .toast { position: fixed; bottom: 20px; left: 16px; right: 16px; background: var(--success); color: black; padding: 14px 20px; border-radius: 10px; font-weight: 700; opacity: 0; transition: opacity 0.2s; z-index: 1000; text-align: center; }
@@ -58,10 +60,51 @@
   .now-playing { background: linear-gradient(135deg, #1a1a2e 0%, #2a1a3e 100%); padding: 22px; border-radius: 14px; text-align: center; margin-bottom: 14px; }
   .now-playing .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; }
   .now-playing .turn-name { font-size: 22px; font-weight: 800; color: var(--accent-2); }
-  .scanner-wrap { background: black; border-radius: 14px; overflow: hidden; margin-bottom: 14px; }
+  .scanner-wrap { background: black; border-radius: 14px; overflow: hidden; margin-bottom: 14px; position: relative; }
   #scanner-region { width: 100%; }
   .controls-row { display: flex; gap: 8px; }
   .controls-row button { flex: 1; }
+
+  /* PLAYING CARD — pulsing beat visualizer */
+  .playing-card {
+    position: relative; padding: 32px 22px; border-radius: 18px; text-align: center;
+    margin-bottom: 14px; overflow: hidden; color: white;
+    background: linear-gradient(135deg, #1a0033 0%, #330066 50%, #0066aa 100%);
+    min-height: 200px; display: flex; flex-direction: column; justify-content: center;
+  }
+  .playing-card::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% 50%, rgba(255,56,100,0.4) 0%, transparent 60%);
+    animation: pulse 1s ease-in-out infinite;
+    z-index: 0;
+  }
+  .playing-card::after {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at 30% 70%, rgba(0,212,255,0.35) 0%, transparent 50%),
+                radial-gradient(circle at 70% 30%, rgba(255,215,0,0.3) 0%, transparent 50%);
+    animation: pulse 1.3s ease-in-out infinite reverse;
+    z-index: 0;
+  }
+  .playing-card.paused::before, .playing-card.paused::after { animation-play-state: paused; opacity: 0.3; }
+  .playing-card > * { position: relative; z-index: 2; }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.9; }
+    50% { transform: scale(1.15); opacity: 0.5; }
+  }
+
+  .playing-card .state-label {
+    font-size: 12px; letter-spacing: 4px; text-transform: uppercase;
+    font-weight: 800; color: rgba(255,255,255,0.85);
+    margin-bottom: 14px;
+  }
+  .playing-card .timer {
+    font-size: 48px; font-weight: 900; font-variant-numeric: tabular-nums;
+    letter-spacing: -1px; line-height: 1; margin: 8px 0;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.4);
+  }
+  .playing-card .hint { font-size: 12px; color: rgba(255,255,255,0.75); margin-top: 8px; }
+
+  .playback-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
 
   /* Card reveal */
   .reveal-card { background: linear-gradient(135deg, #6b2d8f 0%, #1a0b3d 100%); padding: 22px; border-radius: 14px; text-align: center; color: white; margin-bottom: 14px; }
@@ -71,6 +114,8 @@
 
   .scoring-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .scoring-buttons button { padding: 16px 12px; font-size: 14px; }
+
+  .bottom-actions { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
 </style>
 </head>
 <body>
@@ -124,7 +169,7 @@
 <!-- ============ LOBBY ============ -->
 <div id="lobby-screen" class="hidden">
   <h1>🎵 <span>Musika</span></h1>
-  <p class="subtitle">Spillere joiner ved at scanne QR'en eller indtaste koden på <strong id="join-url-display"></strong></p>
+  <p class="subtitle">Spillere scanner QR'en eller går til <strong id="join-url-display"></strong></p>
 
   <div class="panel">
     <div style="text-align:center; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:2px;">Spil-kode</div>
@@ -135,8 +180,13 @@
   <div class="panel">
     <h2 style="font-size:16px; margin-bottom:6px;">Spillere (<span id="player-count">0</span>)</h2>
     <div class="player-list" id="player-list"></div>
-    <button style="margin-top:14px;" onclick="startGame()" id="start-btn" disabled>Start spil</button>
-    <button class="secondary" style="margin-top:8px;" onclick="cancelGame()">Annullér</button>
+    <button style="margin-top:14px;" onclick="startGame()">Start spil</button>
+    <p style="font-size:11px; color:var(--muted); margin-top:8px; text-align:center;">
+      Du kan starte når som helst – også uden spillere (til test)
+    </p>
+    <div class="bottom-actions">
+      <button class="danger" onclick="cancelGame()">Luk spil</button>
+    </div>
   </div>
 </div>
 
@@ -149,6 +199,7 @@
     <div class="turn-name" id="active-player-name">—</div>
   </div>
 
+  <!-- Scan mode -->
   <div id="scan-section">
     <div class="panel">
       <h2 style="font-size:14px; margin-bottom:10px;">Scan kort</h2>
@@ -157,9 +208,26 @@
     </div>
   </div>
 
+  <!-- Playing mode (beat visualizer + controls) -->
+  <div id="playing-section" class="hidden">
+    <div class="playing-card" id="playing-card">
+      <div class="state-label" id="playing-state">AFSPILLER</div>
+      <div class="timer" id="playing-timer">00:00</div>
+      <div class="hint">Tryk "Afslut sang" når spilleren er klar med sit svar</div>
+    </div>
+
+    <div class="playback-controls">
+      <button class="secondary" id="pause-btn" onclick="togglePause()">⏸ Pause</button>
+      <button class="secondary" onclick="restartTrack()">↺ Start forfra</button>
+    </div>
+
+    <button class="warning" onclick="endSong()" style="margin-bottom:14px;">✓ Afslut sang (vis facit)</button>
+  </div>
+
+  <!-- Reveal + scoring -->
   <div id="reveal-section" class="hidden">
     <div class="reveal-card">
-      <div class="label" style="font-size:11px; color:rgba(255,255,255,0.6); text-transform:uppercase; letter-spacing:2px; margin-bottom:8px;">Sang afspilles</div>
+      <div style="font-size:11px; color:rgba(255,255,255,0.6); text-transform:uppercase; letter-spacing:2px; margin-bottom:8px;">Sang</div>
       <div class="artist" id="reveal-artist"></div>
       <div class="year" id="reveal-year"></div>
       <div class="title" id="reveal-title"></div>
@@ -167,7 +235,6 @@
 
     <div class="panel">
       <h2 style="font-size:14px; margin-bottom:12px;">Vurdér <span id="scoring-player"></span>'s svar</h2>
-      <div id="scoring-info" style="font-size:13px; color:var(--muted); margin-bottom:12px;"></div>
       <div class="scoring-buttons" id="scoring-buttons"></div>
     </div>
   </div>
@@ -175,6 +242,9 @@
   <div class="panel">
     <h2 style="font-size:14px; margin-bottom:10px;">Stilling</h2>
     <div class="player-list" id="game-player-list"></div>
+    <div class="bottom-actions">
+      <button class="danger" onclick="endGame()">Afslut spil</button>
+    </div>
   </div>
 </div>
 
@@ -183,10 +253,34 @@
 
 <script>
 // ============================================================
-// CONFIG
+// STATE
 // ============================================================
 let supa = null, currentUser = null, currentGame = null, players = [], spotifyToken = null, scanner = null;
+let currentCard = null, currentTrack = null;
+let playbackStartTime = null, playbackTimer = null, isPaused = false, totalPausedMs = 0, pauseStartTime = null;
+let wakeLock = null;
 
+// ============================================================
+// WAKE LOCK — keep screen on
+// ============================================================
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => {});
+    }
+  } catch (e) { console.warn('Wake lock failed:', e); }
+}
+async function releaseWakeLock() {
+  if (wakeLock) { try { await wakeLock.release(); } catch(e){} wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && currentGame) requestWakeLock();
+});
+
+// ============================================================
+// CONFIG & AUTH
+// ============================================================
 function loadConfig() {
   const url = localStorage.getItem('tl_supa_url');
   const key = localStorage.getItem('tl_supa_key');
@@ -210,10 +304,6 @@ function resetConfig() {
   localStorage.removeItem('tl_supa_key');
   location.reload();
 }
-
-// ============================================================
-// AUTH
-// ============================================================
 async function checkSession() {
   const { data: { session } } = await supa.auth.getSession();
   if (session) { currentUser = session.user; await showCreate(); }
@@ -234,14 +324,12 @@ async function logout() { await supa.auth.signOut(); location.reload(); }
 // ============================================================
 async function showCreate() {
   show('create-screen');
-  // Load playlists
   const { data } = await supa.from('playlists').select('*').order('name');
   const sel = document.getElementById('playlist-select');
   sel.innerHTML = (data || []).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
-  // Load Spotify token (must be set up via admin first)
   const { data: tok } = await supa.from('spotify_tokens').select('*').eq('user_id', currentUser.id).maybeSingle();
   if (tok) spotifyToken = { ...tok, expires_at: new Date(tok.expires_at) };
-  else toast('Husk at forbinde Spotify via admin-siden først', 'error');
+  else toast('Forbind Spotify via admin-siden først', 'error');
 }
 
 async function createGame() {
@@ -257,11 +345,12 @@ async function createGame() {
   if (error) return toast(error.message, 'error');
 
   currentGame = data;
+  await requestWakeLock();
   await showLobby();
 }
 
 function generateCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // skip ambiguous chars
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   return Array.from({length: 4}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
@@ -271,15 +360,12 @@ function generateCode() {
 async function showLobby() {
   show('lobby-screen');
   document.getElementById('game-code').textContent = currentGame.code;
-  // Build join URL — relative to current location
-  const base = window.location.href.replace(/\/[^\/]*$/, '');
+  const base = window.location.href.replace(/\/[^\/]*(\?.*)?$/, '');
   const joinUrl = `${base}/play.html?code=${currentGame.code}`;
   document.getElementById('join-url-display').textContent = base.replace(/^https?:\/\//, '') + '/play';
-  // QR code
   const qr = document.getElementById('join-qr');
   qr.innerHTML = '';
   new QRCode(qr, { text: joinUrl, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
-
   await loadPlayers();
   subscribeToPlayers();
 }
@@ -293,9 +379,8 @@ async function loadPlayers() {
 function renderPlayers() {
   document.getElementById('player-count').textContent = players.length;
   document.getElementById('player-list').innerHTML = players.length === 0
-    ? '<div style="color:var(--muted); text-align:center; padding:20px; font-size:13px;">Venter på spillere...</div>'
+    ? '<div style="color:var(--muted); text-align:center; padding:20px; font-size:13px;">Venter på spillere (start kan ske uanset)...</div>'
     : players.map(p => `<div class="player-row"><span class="player-name">${escapeHtml(p.name)}</span></div>`).join('');
-  document.getElementById('start-btn').disabled = players.length < 2;
 }
 
 let playersChannel = null;
@@ -308,41 +393,38 @@ function subscribeToPlayers() {
 }
 
 async function cancelGame() {
-  if (!confirm('Annullér spillet?')) return;
+  if (!confirm('Luk spillet? Alle spillere bliver sparket ud.')) return;
+  await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
   await supa.from('games').delete().eq('id', currentGame.id);
   currentGame = null;
   if (playersChannel) supa.removeChannel(playersChannel);
+  await releaseWakeLock();
   await showCreate();
 }
 
 // ============================================================
-// START GAME → ACTIVE
+// START GAME (works with 0-N players)
 // ============================================================
 async function startGame() {
-  if (players.length < 2) return toast('Mindst 2 spillere skal joine', 'error');
-  // Pick first player (joined first)
-  const firstPlayer = players[0];
+  const firstPlayer = players[0] || null;
   await supa.from('games').update({
     status: 'playing',
-    current_player_id: firstPlayer.id,
+    current_player_id: firstPlayer ? firstPlayer.id : null,
   }).eq('id', currentGame.id);
   currentGame.status = 'playing';
-  currentGame.current_player_id = firstPlayer.id;
+  currentGame.current_player_id = firstPlayer ? firstPlayer.id : null;
   await showGame();
 }
 
 // ============================================================
 // ACTIVE GAME
 // ============================================================
-let currentCard = null, currentTrack = null;
-
 async function showGame() {
   show('game-screen');
   await loadPlayers();
   renderGameStanding();
   startScanner();
 
-  // Subscribe to game + players changes
   if (playersChannel) supa.removeChannel(playersChannel);
   playersChannel = supa.channel(`game-${currentGame.id}-active`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `game_id=eq.${currentGame.id}` },
@@ -352,16 +434,18 @@ async function showGame() {
 
 function renderGameStanding() {
   const active = players.find(p => p.id === currentGame.current_player_id);
-  document.getElementById('active-player-name').textContent = active ? active.name : '—';
+  document.getElementById('active-player-name').textContent = active ? active.name : '(ingen spiller)';
 
   const sorted = [...players].sort((a,b) => b.score - a.score);
-  document.getElementById('game-player-list').innerHTML = sorted.map(p => {
-    const isActive = p.id === currentGame.current_player_id;
-    return `<div class="player-row" style="${isActive ? 'border:1px solid var(--accent-2);' : ''}">
-      <span class="player-name">${isActive ? '▶ ' : ''}${escapeHtml(p.name)}</span>
-      <span class="player-score">${p.score}</span>
-    </div>`;
-  }).join('');
+  document.getElementById('game-player-list').innerHTML = players.length === 0
+    ? '<div style="color:var(--muted); text-align:center; padding:10px; font-size:13px;">Ingen spillere</div>'
+    : sorted.map(p => {
+        const isActive = p.id === currentGame.current_player_id;
+        return `<div class="player-row" style="${isActive ? 'border:1px solid var(--accent-2);' : ''}">
+          <span class="player-name">${isActive ? '▶ ' : ''}${escapeHtml(p.name)}</span>
+          <span class="player-score">${p.score}</span>
+        </div>`;
+      }).join('');
 }
 
 function checkWinner() {
@@ -372,11 +456,21 @@ function checkWinner() {
   }
 }
 
+async function endGame() {
+  if (!confirm('Afslut spillet? Alle spillere ser slutstillingen.')) return;
+  await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
+  await pauseTrack();
+  await releaseWakeLock();
+  toast('Spillet er afsluttet');
+  setTimeout(() => location.reload(), 1500);
+}
+
 // ============================================================
 // SCANNER
 // ============================================================
 function startScanner() {
   document.getElementById('scan-section').classList.remove('hidden');
+  document.getElementById('playing-section').classList.add('hidden');
   document.getElementById('reveal-section').classList.add('hidden');
   if (scanner) return;
   scanner = new Html5Qrcode('scanner-region');
@@ -384,8 +478,8 @@ function startScanner() {
     { facingMode: 'environment' },
     { fps: 10, qrbox: { width: 220, height: 220 } },
     onScanned,
-    () => {} // ignore scan failures
-  ).catch(err => toast('Kunne ikke starte kamera: ' + err, 'error'));
+    () => {}
+  ).catch(err => toast('Kamera-fejl: ' + err, 'error'));
 }
 
 async function stopScanner() {
@@ -395,17 +489,13 @@ async function stopScanner() {
 }
 
 async function onScanned(decoded) {
-  // Decoded should be a URL like https://kennethsvj.github.io/Musika/c/CARDID
-  // Extract card ID
   const m = decoded.match(/\/c\/([a-z0-9]+)/i) || decoded.match(/track\/([a-zA-Z0-9]+)/);
   let cardId = m ? m[1] : decoded;
 
   await stopScanner();
 
-  // Look up card
   const { data: card } = await supa.from('cards').select('*, track:tracks(*)').eq('id', cardId).maybeSingle();
   if (!card) {
-    // Maybe it's a Spotify ID (old card format) — look up by spotify_id
     const { data: track } = await supa.from('tracks').select('*').eq('spotify_id', cardId).maybeSingle();
     if (!track) { toast('Kort ikke fundet', 'error'); startScanner(); return; }
     currentCard = { id: 'legacy-' + cardId, track };
@@ -416,11 +506,87 @@ async function onScanned(decoded) {
   }
 
   await playTrack(currentTrack.spotify_id);
-  showRevealAndScoring();
+  showPlaying();
 }
 
 // ============================================================
-// SPOTIFY PLAYBACK (host's Premium device)
+// PLAYING VIEW (beat visualizer + controls)
+// ============================================================
+function showPlaying() {
+  document.getElementById('scan-section').classList.add('hidden');
+  document.getElementById('playing-section').classList.remove('hidden');
+  document.getElementById('reveal-section').classList.add('hidden');
+
+  document.getElementById('playing-card').classList.remove('paused');
+  document.getElementById('playing-state').textContent = 'AFSPILLER';
+  document.getElementById('pause-btn').textContent = '⏸ Pause';
+
+  isPaused = false;
+  totalPausedMs = 0;
+  pauseStartTime = null;
+  playbackStartTime = Date.now();
+  startPlaybackTimer();
+}
+
+function startPlaybackTimer() {
+  stopPlaybackTimer();
+  playbackTimer = setInterval(updateTimerDisplay, 200);
+}
+function stopPlaybackTimer() {
+  if (playbackTimer) { clearInterval(playbackTimer); playbackTimer = null; }
+}
+function updateTimerDisplay() {
+  if (!playbackStartTime) return;
+  let elapsedMs = Date.now() - playbackStartTime - totalPausedMs;
+  if (isPaused && pauseStartTime) elapsedMs -= (Date.now() - pauseStartTime);
+  const totalSec = Math.max(0, Math.floor(elapsedMs / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  document.getElementById('playing-timer').textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+async function togglePause() {
+  const token = await getValidSpotifyToken();
+  if (!token) return;
+  if (isPaused) {
+    await fetch('https://api.spotify.com/v1/me/player/play', {
+      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+    });
+    if (pauseStartTime) totalPausedMs += Date.now() - pauseStartTime;
+    pauseStartTime = null;
+    isPaused = false;
+    document.getElementById('playing-card').classList.remove('paused');
+    document.getElementById('playing-state').textContent = 'AFSPILLER';
+    document.getElementById('pause-btn').textContent = '⏸ Pause';
+  } else {
+    await pauseTrack();
+    pauseStartTime = Date.now();
+    isPaused = true;
+    document.getElementById('playing-card').classList.add('paused');
+    document.getElementById('playing-state').textContent = 'PAUSET';
+    document.getElementById('pause-btn').textContent = '▶ Fortsæt';
+  }
+}
+
+async function restartTrack() {
+  await playTrack(currentTrack.spotify_id);
+  playbackStartTime = Date.now();
+  totalPausedMs = 0;
+  pauseStartTime = null;
+  isPaused = false;
+  document.getElementById('playing-card').classList.remove('paused');
+  document.getElementById('playing-state').textContent = 'AFSPILLER';
+  document.getElementById('pause-btn').textContent = '⏸ Pause';
+}
+
+async function endSong() {
+  stopPlaybackTimer();
+  await pauseTrack();
+  showReveal();
+}
+
+// ============================================================
+// SPOTIFY PLAYBACK
 // ============================================================
 async function getValidSpotifyToken() {
   if (!spotifyToken) return null;
@@ -446,13 +612,12 @@ async function playTrack(spotifyId) {
   const token = await getValidSpotifyToken();
   if (!token) { toast('Ingen Spotify-forbindelse', 'error'); return; }
 
-  // Find an active device
   const devRes = await fetch('https://api.spotify.com/v1/me/player/devices', {
     headers: { Authorization: `Bearer ${token}` }
   });
   const devices = (await devRes.json()).devices || [];
   if (devices.length === 0) {
-    toast('Ingen Spotify-enhed aktiv. Åbn Spotify-app og start en sang først.', 'error');
+    toast('⚠️ Åbn Spotify-app og start en sang (pause efter 1 sek), så prøv igen', 'error');
     return;
   }
   const device = devices.find(d => d.is_active) || devices[0];
@@ -473,14 +638,15 @@ async function pauseTrack() {
   if (!token) return;
   await fetch('https://api.spotify.com/v1/me/player/pause', {
     method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-  });
+  }).catch(() => {});
 }
 
 // ============================================================
-// REVEAL & SCORING (Phase B placeholder — full scoring in Phase C)
+// REVEAL & SCORING
 // ============================================================
-function showRevealAndScoring() {
+function showReveal() {
   document.getElementById('scan-section').classList.add('hidden');
+  document.getElementById('playing-section').classList.add('hidden');
   document.getElementById('reveal-section').classList.remove('hidden');
 
   document.getElementById('reveal-artist').textContent = currentTrack.artist;
@@ -488,31 +654,38 @@ function showRevealAndScoring() {
   document.getElementById('reveal-title').textContent = currentTrack.title;
 
   const active = players.find(p => p.id === currentGame.current_player_id);
-  document.getElementById('scoring-player').textContent = active ? active.name : '';
-  document.getElementById('scoring-info').textContent = 'Tildel point manuelt for nu (fuldt scoring-system kommer i fase C):';
+  document.getElementById('scoring-player').textContent = active ? active.name : '(ingen)';
 
   const buttons = document.getElementById('scoring-buttons');
-  buttons.innerHTML = `
-    <button class="success" onclick="awardPoints(0)">0 point</button>
-    <button class="success" onclick="awardPoints(1)">1 point</button>
-    <button class="success" onclick="awardPoints(2)">2 point</button>
-    <button class="success" onclick="awardPoints(3)">3 point</button>
-  `;
+  if (!active) {
+    buttons.innerHTML = `<button class="secondary" style="grid-column: span 2;" onclick="nextTurn()">Næste kort</button>`;
+  } else {
+    buttons.innerHTML = `
+      <button class="success" onclick="awardPoints(0)">0 point</button>
+      <button class="success" onclick="awardPoints(1)">1 point</button>
+      <button class="success" onclick="awardPoints(2)">2 point</button>
+      <button class="success" onclick="awardPoints(3)">3 point</button>
+    `;
+  }
 }
 
 async function awardPoints(points) {
   const active = players.find(p => p.id === currentGame.current_player_id);
-  if (!active) return;
-  await pauseTrack();
-  await supa.from('players').update({ score: active.score + points }).eq('id', active.id);
+  if (active) {
+    await supa.from('players').update({ score: active.score + points }).eq('id', active.id);
+  }
   await nextTurn();
 }
 
 async function nextTurn() {
-  const idx = players.findIndex(p => p.id === currentGame.current_player_id);
-  const next = players[(idx + 1) % players.length];
-  await supa.from('games').update({ current_player_id: next.id, current_card_id: null }).eq('id', currentGame.id);
-  currentGame.current_player_id = next.id;
+  let nextPlayerId = null;
+  if (players.length > 0) {
+    const idx = players.findIndex(p => p.id === currentGame.current_player_id);
+    const next = players[(idx + 1) % players.length];
+    nextPlayerId = next.id;
+  }
+  await supa.from('games').update({ current_player_id: nextPlayerId, current_card_id: null }).eq('id', currentGame.id);
+  currentGame.current_player_id = nextPlayerId;
   await loadPlayers();
   renderGameStanding();
   startScanner();
@@ -530,7 +703,7 @@ function toast(msg, type) {
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.className = 'toast show' + (type === 'error' ? ' error' : '');
-  setTimeout(() => el.classList.remove('show'), 2400);
+  setTimeout(() => el.classList.remove('show'), 2800);
 }
 
 loadConfig();
