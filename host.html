@@ -192,21 +192,14 @@
 <div id="auth-screen">
   <h1>🎵 <span>Musika</span> Host</h1>
   <p class="subtitle">Log ind for at oprette spil</p>
-  <div class="panel" id="config-panel">
-    <label>Supabase URL</label>
-    <input id="cfg-url" placeholder="https://xxxxx.supabase.co">
-    <label style="margin-top:10px;">Supabase anon key</label>
-    <input id="cfg-key" placeholder="eyJhbGc...">
-    <button style="margin-top:14px;" onclick="saveConfig()">Gem</button>
-  </div>
-  <div class="panel hidden" id="login-panel">
+  <div class="panel">
     <label>Email</label>
     <input id="email" type="email">
     <label style="margin-top:10px;">Password</label>
     <input id="password" type="password">
     <button style="margin-top:14px;" onclick="login()">Log ind</button>
     <p style="font-size:12px; color:var(--muted); margin-top:14px;">
-      Brug samme konto som admin-siden. <a href="#" onclick="resetConfig();return false;" style="color:var(--accent-2);">Skift konfig</a>
+      Brug samme konto som admin-siden.
     </p>
   </div>
 </div>
@@ -337,9 +330,14 @@
 
 <script>
 // ============================================================
-// STATE
+// SUPABASE CONFIG — hardcoded (anon key is safe in frontend)
+// ⚠️ REPLACE THESE TWO VALUES WITH YOUR OWN BEFORE DEPLOYING
 // ============================================================
-let supa = null, currentUser = null, currentGame = null, players = [], spotifyToken = null, scanner = null;
+const SUPABASE_URL = 'https://wfbzuzuzpyhnvjrhajnp.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndmYnp1enV6cHlobnZqcmhham5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDQxODgsImV4cCI6MjA5MTgyMDE4OH0.ERpe5nHFfd9r6lbEZ9bkQzkkHvTj-k-u4G9N1ZI3N2w';
+
+let supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let currentUser = null, currentGame = null, players = [], spotifyToken = null, scanner = null;
 let currentCard = null, currentTrack = null;
 let playbackStartTime = null, playbackTimer = null, isPaused = false, totalPausedMs = 0, pauseStartTime = null;
 let wakeLock = null;
@@ -363,31 +361,8 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ============================================================
-// CONFIG & AUTH
+// AUTH
 // ============================================================
-function loadConfig() {
-  const url = localStorage.getItem('tl_supa_url');
-  const key = localStorage.getItem('tl_supa_key');
-  if (url && key) {
-    supa = window.supabase.createClient(url, key);
-    document.getElementById('config-panel').classList.add('hidden');
-    document.getElementById('login-panel').classList.remove('hidden');
-    checkSession();
-  }
-}
-function saveConfig() {
-  const url = document.getElementById('cfg-url').value.trim();
-  const key = document.getElementById('cfg-key').value.trim();
-  if (!url || !key) return toast('Udfyld begge', 'error');
-  localStorage.setItem('tl_supa_url', url);
-  localStorage.setItem('tl_supa_key', key);
-  loadConfig();
-}
-function resetConfig() {
-  localStorage.removeItem('tl_supa_url');
-  localStorage.removeItem('tl_supa_key');
-  location.reload();
-}
 async function checkSession() {
   const { data: { session } } = await supa.auth.getSession();
   if (session) { currentUser = session.user; await showCreate(); }
@@ -846,7 +821,7 @@ function toast(msg, type) {
   setTimeout(() => el.classList.remove('show'), 2800);
 }
 
-loadConfig();
+checkSession();
 </script>
 </body>
 </html>
