@@ -363,8 +363,6 @@ async function logout() { await supa.auth.signOut(); location.reload(); }
 // ============================================================
 // CREATE SCREEN
 // ============================================================
-let selectedDeviceId = null;
-
 async function showCreate() {
   show('create-screen');
   const { data } = await supa.from('playlists').select('*').order('name');
@@ -392,9 +390,9 @@ async function refreshDevices() {
     sel.innerHTML = '<option value="">Ingen enheder — åbn Spotify først</option>';
     return;
   }
-  const savedId = localStorage.getItem('tl_device_id');
+  const savedName = localStorage.getItem('tl_device_name');
   sel.innerHTML = devices.map(d =>
-    `<option value="${d.id}" ${(d.id === savedId || (!savedId && d.is_active)) ? 'selected' : ''}>${escapeHtml(d.name)} (${d.type})</option>`
+    `<option value="${d.name}" ${d.name === savedName ? 'selected' : ''}>${escapeHtml(d.name)} (${d.type})</option>`
   ).join('');
 }
 
@@ -404,9 +402,9 @@ async function createGame() {
   const win_points = parseInt(document.getElementById('win-points').value, 10);
   if (!playlist_id) return toast('Vælg en playliste', 'error');
 
-  // Remember selected device
-  selectedDeviceId = document.getElementById('device-select').value;
-  if (selectedDeviceId) localStorage.setItem('tl_device_id', selectedDeviceId);
+  // Remember selected device by NAME (IDs change between sessions)
+  const selectedDeviceName = document.getElementById('device-select').value;
+  if (selectedDeviceName) localStorage.setItem('tl_device_name', selectedDeviceName);
 
   const code = generateCode();
   const { data, error } = await supa.from('games').insert({
@@ -704,16 +702,29 @@ async function findAndTransferDevice(token) {
   const devices = (await r.json()).devices || [];
   if (devices.length === 0) return null;
 
-  const savedId = selectedDeviceId || localStorage.getItem('tl_device_id');
-  // ALWAYS prefer saved device — prevents Bluetooth from hijacking
-  const device = devices.find(d => d.id === savedId) || devices[0];
+  // Match by saved NAME (not ID — IDs change between sessions)
+  const savedName = localStorage.getItem('tl_device_name');
+  let device;
+  if (savedName) {
+    device = devices.find(d => d.name === savedName);
+    if (!device) {
+      console.warn(`Saved device "${savedName}" not found. Available:`, devices.map(d => d.name));
+      toast(`Enhed "${savedName}" ikke fundet. Åbn Spotify på den enhed.`, 'error');
+      device = devices[0]; // fallback
+    }
+  } else {
+    device = devices[0];
+  }
 
-  // Force transfer every time (even if already active)
+  console.log(`Transferring to: "${device.name}" (${device.id})`);
+
+  // Force transfer every time
   await fetch('https://api.spotify.com/v1/me/player', {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ device_ids: [device.id], play: false }),
   });
+
   return device.id;
 }
 
