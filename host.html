@@ -807,31 +807,21 @@ async function playTrack(spotifyId) {
 async function pauseTrack() {
   if (webPlayer && webPlayerReady) { await webPlayer.pause(); return; }
   const token = await getValidSpotifyToken();
-  if (!token || !activeDeviceId) return;
-  if (isMobile) {
-    await fetch(`https://api.spotify.com/v1/me/player/volume?volume_percent=0&device_id=${activeDeviceId}`, {
-      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => {});
-  } else {
-    await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
-      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => {});
-  }
+  if (!token || !activeDeviceId) { console.warn('No token or device for pause'); return; }
+  console.log('Pausing on device:', activeDeviceId);
+  await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
+    method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+  }).catch(e => console.error('Pause error:', e));
 }
 
 async function resumeTrack() {
   if (webPlayer && webPlayerReady) { await webPlayer.resume(); return; }
   const token = await getValidSpotifyToken();
-  if (!token || !activeDeviceId) return;
-  if (isMobile) {
-    await fetch(`https://api.spotify.com/v1/me/player/volume?volume_percent=100&device_id=${activeDeviceId}`, {
-      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => {});
-  } else {
-    await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${activeDeviceId}`, {
-      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => {});
-  }
+  if (!token || !activeDeviceId) { console.warn('No token or device for resume'); return; }
+  console.log('Resuming on device:', activeDeviceId);
+  await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${activeDeviceId}`, {
+    method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+  }).catch(e => console.error('Resume error:', e));
 }
 
 async function stopTrack() {
