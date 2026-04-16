@@ -214,9 +214,12 @@
     <select id="device-select">
       <option value="">-- Henter enheder... --</option>
     </select>
-    <button class="secondary" style="margin-top:6px; padding:8px; font-size:12px;" onclick="refreshDevices()">↻ Opdatér enhedsliste</button>
+    <div style="display:flex; gap:8px; margin-top:6px;">
+      <button class="secondary" style="flex:1; padding:8px; font-size:12px;" onclick="refreshDevices()">↻ Opdatér</button>
+      <button class="secondary" style="flex:1; padding:8px; font-size:12px;" onclick="testDevice()">🔊 Test enhed</button>
+    </div>
     <p style="font-size:11px; color:var(--muted); margin-top:6px;">
-      Åbn Spotify-app på den enhed du vil afspille på, og klik opdatér.
+      Vælg din telefon og tryk "Test" for at bekræfte lyden kommer fra den rigtige enhed.
     </p>
     <button style="margin-top:18px;" onclick="createGame()">Opret spil</button>
     <button class="secondary" style="margin-top:8px;" onclick="logout()">Log ud</button>
@@ -694,7 +697,8 @@ async function initWebPlaybackSDK() {
 }
 
 // --- Robust mobile playback ---
-async function findAndTransferDevice(token) {
+// --- Find device by saved name (NO transfer — transfer causes device hijacking) ---
+async function findDeviceId(token) {
   const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
     headers: { Authorization: `Bearer ${token}` }
   });
@@ -702,30 +706,56 @@ async function findAndTransferDevice(token) {
   const devices = (await r.json()).devices || [];
   if (devices.length === 0) return null;
 
-  // Match by saved NAME (not ID — IDs change between sessions)
   const savedName = localStorage.getItem('tl_device_name');
   let device;
   if (savedName) {
     device = devices.find(d => d.name === savedName);
     if (!device) {
-      console.warn(`Saved device "${savedName}" not found. Available:`, devices.map(d => d.name));
-      toast(`Enhed "${savedName}" ikke fundet. Åbn Spotify på den enhed.`, 'error');
-      device = devices[0]; // fallback
+      console.warn(`Saved device "${savedName}" not found. Available:`, devices.map(d => `${d.name} (${d.id})`));
+      return null;
     }
   } else {
-    device = devices[0];
+    device = devices.find(d => d.is_active) || devices[0];
   }
 
-  console.log(`Transferring to: "${device.name}" (${device.id})`);
+  console.log(`Using device: "${device.name}" (${device.id})`);
+  return device.id;
+}
 
-  // Force transfer every time
-  await fetch('https://api.spotify.com/v1/me/player', {
+async function testDevice() {
+  const token = await getValidSpotifyToken();
+  if (!token) return toast('Ingen Spotify-forbindelse', 'error');
+
+  // Save selected device name
+  const name = document.getElementById('device-select').value;
+  if (!name) return toast('Vælg en enhed først', 'error');
+  localStorage.setItem('tl_device_name', name);
+
+  const deviceId = await findDeviceId(token);
+  if (!deviceId) return toast('Enhed ikke fundet', 'error');
+
+  // Play a short burst of a known track to test
+  const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ device_ids: [device.id], play: false }),
+    body: JSON.stringify({
+      uris: ['spotify:track:4uLU6hMCjMI75M1A2tKUQC'], // Rick Astley — easy to recognize
+      position_ms: 0,
+    }),
   });
 
-  return device.id;
+  if (r.ok) {
+    toast('Hører du musik fra din telefon? Hvis ja, er enheden korrekt!');
+    // Stop after 3 seconds
+    setTimeout(async () => {
+      await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${deviceId}`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }, 3000);
+  } else {
+    const err = await r.text();
+    toast('Test fejlede: ' + err.slice(0, 80), 'error');
+  }
 }
 
 async function tryPlay(token, deviceId, spotifyId) {
@@ -749,34 +779,29 @@ async function playTrack(spotifyId) {
     }
   }
 
-  // === MOBILE: Web API with retry ===
-  const delays = [300, 1000, 2000];
+  // === MOBILE / FALLBACK: Direct play with device_id (no transfer) ===
+  const delays = [0, 500, 1500];
   for (let attempt = 0; attempt < delays.length; attempt++) {
-    const deviceId = await findAndTransferDevice(token);
+    if (delays[attempt] > 0) await new Promise(r => setTimeout(r, delays[attempt]));
+
+    const deviceId = await findDeviceId(token);
     if (!deviceId) {
       if (attempt === delays.length - 1) {
-        toast('Ingen Spotify-enhed fundet. Åbn Spotify-app og tryk afspil i 5 sek.', 'error');
+        toast('Enhed ikke fundet. Vælg den rigtige enhed og tryk "Test".', 'error');
         return;
       }
-      await new Promise(r => setTimeout(r, delays[attempt]));
       continue;
     }
-
-    await new Promise(r => setTimeout(r, delays[attempt]));
 
     if (await tryPlay(token, deviceId, spotifyId)) {
       activeDeviceId = deviceId;
       console.log(`Playback started on ${deviceId} (attempt ${attempt + 1})`);
-      // Restore volume
-      await fetch(`https://api.spotify.com/v1/me/player/volume?volume_percent=100&device_id=${deviceId}`, {
-        method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {});
       return;
     }
-    console.warn(`Play attempt ${attempt + 1} failed, retrying...`);
+    console.warn(`Play attempt ${attempt + 1} failed`);
   }
 
-  toast('Kunne ikke afspille. Åbn Spotify, spil noget kort, og prøv igen.', 'error');
+  toast('Afspilning fejlede. Prøv at åbne Spotify og afspil noget kort, og test enheden igen.', 'error');
 }
 
 async function pauseTrack() {
