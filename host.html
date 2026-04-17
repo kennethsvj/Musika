@@ -326,7 +326,6 @@ let currentUser = null, currentGame = null, players = [], spotifyToken = null, s
 let currentCard = null, currentTrack = null;
 let playbackStartTime = null, playbackTimer = null, isPaused = false, totalPausedMs = 0, pauseStartTime = null;
 let wakeLock = null;
-let keepAliveInterval = null;
 
 // ============================================================
 // WAKE LOCK — keep screen on
@@ -466,7 +465,6 @@ function subscribeToPlayers() {
 
 async function cancelGame() {
   if (!confirm('Luk spillet? Alle spillere bliver sparket ud.')) return;
-  stopKeepAlive();
   await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
   await supa.from('games').delete().eq('id', currentGame.id);
   currentGame = null;
@@ -532,7 +530,6 @@ function checkWinner() {
 async function endGame() {
   if (!confirm('Afslut spillet? Alle spillere ser slutstillingen.')) return;
   await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
-  stopKeepAlive();
   await stopTrack();
   await releaseWakeLock();
   toast('Spillet er afsluttet');
@@ -621,32 +618,6 @@ function showPlayingOverlay() {
   pauseStartTime = null;
   playbackStartTime = Date.now();
   startPlaybackTimer();
-  startKeepAlive();
-}
-
-// Keep Spotify device alive by pinging playback state every 15s
-function startKeepAlive() {
-  stopKeepAlive();
-  keepAliveInterval = setInterval(async () => {
-    const token = await getValidSpotifyToken();
-    if (!token || !activeDeviceId) return;
-    try {
-      const r = await fetch('https://api.spotify.com/v1/me/player', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (r.ok) {
-        const state = await r.json();
-        if (state && state.device) {
-          // Update cached device ID in case it changed
-          activeDeviceId = state.device.id;
-        }
-      }
-    } catch(e) { console.warn('Keepalive ping failed:', e); }
-  }, 15000);
-}
-
-function stopKeepAlive() {
-  if (keepAliveInterval) { clearInterval(keepAliveInterval); keepAliveInterval = null; }
 }
 
 function startPlaybackTimer() {
@@ -687,7 +658,6 @@ async function togglePause() {
 
 async function endSong() {
   stopPlaybackTimer();
-  stopKeepAlive();
   await stopTrack();
   document.getElementById('playing-overlay').classList.add('hidden');
   showScoring();
@@ -806,6 +776,8 @@ async function tryPlay(token, deviceId, spotifyId) {
   return r.ok;
 }
 
+let hasPlayedFirstSong = false;
+
 async function playTrack(spotifyId) {
   const token = await getValidSpotifyToken();
   if (!token) { toast('Ingen Spotify-forbindelse', 'error'); return; }
@@ -818,56 +790,88 @@ async function playTrack(spotifyId) {
     }
   }
 
-  // === Try cached device first (fast, no API call) ===
+  // === MOBILE ===
+
+  // Strategy 1: If we've already played a song, try WITHOUT device_id
+  // Spotify remembers the last active device and routes there automatically
+  if (hasPlayedFirstSong) {
+    console.log('Trying play without device_id (let Spotify route)');
+    const r = await fetch('https://api.spotify.com/v1/me/player/play', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uris: [`spotify:track:${spotifyId}`] }),
+    });
+    if (r.ok) {
+      console.log('Played without device_id — success');
+      return;
+    }
+    console.warn('Play without device_id failed:', r.status);
+  }
+
+  // Strategy 2: Try with cached device_id
   if (activeDeviceId) {
     if (await tryPlay(token, activeDeviceId, spotifyId)) {
       console.log('Played on cached device:', activeDeviceId);
+      hasPlayedFirstSong = true;
       return;
     }
-    console.warn('Cached device failed, doing fresh lookup');
+    console.warn('Cached device failed');
   }
 
-  // === Fresh lookup only if cached device failed ===
+  // Strategy 3: Fresh device lookup
   const deviceId = await findDeviceId(token);
-  if (!deviceId) {
-    toast('Enhed ikke fundet. Åbn Spotify, afspil noget kort, og test enheden igen.', 'error');
-    return;
-  }
-
-  if (await tryPlay(token, deviceId, spotifyId)) {
+  if (deviceId && await tryPlay(token, deviceId, spotifyId)) {
     activeDeviceId = deviceId;
+    hasPlayedFirstSong = true;
     console.log('Played on fresh device:', deviceId);
     return;
   }
 
-  toast('Afspilning fejlede. Åbn Spotify og prøv igen.', 'error');
+  toast('Enhed mistet. Åbn Spotify, afspil noget kort, og test enheden igen.', 'error');
 }
 
 async function pauseTrack() {
   if (webPlayer && webPlayerReady) { await webPlayer.pause(); return; }
   const token = await getValidSpotifyToken();
-  if (!token || !activeDeviceId) { console.warn('No token or device for pause'); return; }
-  console.log('Pausing on device:', activeDeviceId);
-  await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
+  if (!token) return;
+  // Try with device_id first, then without
+  if (activeDeviceId) {
+    const r = await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
+      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => null);
+    if (r && r.ok) return;
+  }
+  await fetch('https://api.spotify.com/v1/me/player/pause', {
     method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-  }).catch(e => console.error('Pause error:', e));
+  }).catch(() => {});
 }
 
 async function resumeTrack() {
   if (webPlayer && webPlayerReady) { await webPlayer.resume(); return; }
   const token = await getValidSpotifyToken();
-  if (!token || !activeDeviceId) { console.warn('No token or device for resume'); return; }
-  console.log('Resuming on device:', activeDeviceId);
-  await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${activeDeviceId}`, {
+  if (!token) return;
+  if (activeDeviceId) {
+    const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${activeDeviceId}`, {
+      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => null);
+    if (r && r.ok) return;
+  }
+  await fetch('https://api.spotify.com/v1/me/player/play', {
     method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-  }).catch(e => console.error('Resume error:', e));
+  }).catch(() => {});
 }
 
 async function stopTrack() {
   if (webPlayer && webPlayerReady) { await webPlayer.pause(); return; }
   const token = await getValidSpotifyToken();
-  if (!token || !activeDeviceId) return;
-  await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
+  if (!token) return;
+  if (activeDeviceId) {
+    const r = await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
+      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => null);
+    if (r && r.ok) return;
+  }
+  await fetch('https://api.spotify.com/v1/me/player/pause', {
     method: 'PUT', headers: { Authorization: `Bearer ${token}` },
   }).catch(() => {});
 }
