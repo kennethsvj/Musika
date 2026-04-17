@@ -289,9 +289,10 @@
     <h2 id="tracks-heading">Tracks</h2>
     <div class="stats" id="tracks-stats"></div>
     <div class="track-list" id="track-list"></div>
-    <div style="display:flex; gap:10px; margin-top:18px;">
-      <button onclick="generateAndPrint()" id="print-btn">🖨️ Generér kort til print</button>
-      <button class="secondary" onclick="exportCSV()">⬇️ Eksportér CSV</button>
+    <div style="display:flex; gap:10px; margin-top:18px; flex-wrap:wrap;">
+      <button onclick="generateAndPrint()" id="print-btn" style="flex:1; min-width:200px;">🖨️ Generér kort til print</button>
+      <button class="secondary" onclick="window.open('tokens-print.html', '_blank')" style="flex:1; min-width:160px;">🎯 Print tokens</button>
+      <button class="secondary" onclick="exportCSV()" style="flex:1; min-width:140px;">⬇️ Eksportér CSV</button>
     </div>
   </div>
 </div>
