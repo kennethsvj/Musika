@@ -1,0 +1,20 @@
+{
+  "name": "Musika",
+  "short_name": "Musika",
+  "description": "Musik-timeline spil inspireret af Hitster",
+  "start_url": "./host.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "lang": "da",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%20512%20512%27%3E%3Crect%20width%3D%27512%27%20height%3D%27512%27%20rx%3D%2796%27%20fill%3D%27%230a0a0f%27%2F%3E%3Ccircle%20cx%3D%27256%27%20cy%3D%27256%27%20r%3D%27200%27%20fill%3D%27none%27%20stroke%3D%27%23ff3864%27%20stroke-width%3D%2716%27%2F%3E%3Ccircle%20cx%3D%27256%27%20cy%3D%27256%27%20r%3D%27150%27%20fill%3D%27none%27%20stroke%3D%27%2300d4ff%27%20stroke-width%3D%2716%27%2F%3E%3Ccircle%20cx%3D%27256%27%20cy%3D%27256%27%20r%3D%27100%27%20fill%3D%27none%27%20stroke%3D%27%23ff3864%27%20stroke-width%3D%2716%27%2F%3E%3Ccircle%20cx%3D%27256%27%20cy%3D%27256%27%20r%3D%2740%27%20fill%3D%27%2300d4ff%27%2F%3E%3C%2Fsvg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
