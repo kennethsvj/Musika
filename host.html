@@ -212,14 +212,16 @@
     <input id="win-points" type="number" value="15" min="5" max="50">
     <label style="margin-top:14px;">Afspilningsenhed</label>
     <select id="device-select">
-      <option value="">-- Henter enheder... --</option>
+      <option value="__SDK__">📱 Denne enhed (browser)</option>
     </select>
     <div style="display:flex; gap:8px; margin-top:6px;">
       <button class="secondary" style="flex:1; padding:8px; font-size:12px;" onclick="refreshDevices()">↻ Opdatér</button>
       <button class="secondary" style="flex:1; padding:8px; font-size:12px;" onclick="testDevice()">🔊 Test enhed</button>
     </div>
-    <p style="font-size:11px; color:var(--muted); margin-top:6px;">
-      Vælg din telefon og tryk "Test" for at bekræfte lyden kommer fra den rigtige enhed.
+    <p style="font-size:11px; color:var(--muted); margin-top:6px; line-height:1.4;">
+      <strong>Vigtigt:</strong> Tryk "🔊 Test enhed" én gang for at aktivere afspilningen på telefonen.
+      Musikken afspilles direkte i browseren og går til telefonens højttaler (eller din Bluetooth/AirPods hvis tilsluttet i iOS).
+      Vælg SONOS/andet for at streame dertil i stedet.
     </p>
     <button style="margin-top:18px;" onclick="createGame()">Opret spil</button>
     <button class="secondary" style="margin-top:8px;" onclick="logout()">Log ud</button>
@@ -381,25 +383,64 @@ async function showCreate() {
 
 async function refreshDevices() {
   const sel = document.getElementById('device-select');
-  sel.innerHTML = '<option value="">Henter...</option>';
+  if (!sel) return;
   const token = await getValidSpotifyToken();
   if (!token) { sel.innerHTML = '<option value="">Ingen Spotify-forbindelse</option>'; return; }
-  const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  if (!r.ok) { sel.innerHTML = '<option value="">Fejl ved hentning</option>'; return; }
-  const devices = (await r.json()).devices || [];
-  if (devices.length === 0) {
-    sel.innerHTML = '<option value="">Ingen enheder — åbn Spotify først</option>';
-    return;
+
+  // Fetch Spotify Connect devices
+  let devices = [];
+  try {
+    const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (r.ok) devices = (await r.json()).devices || [];
+  } catch (e) { console.warn('device fetch:', e); }
+
+  // Filter out our own SDK device (we expose it as "Denne enhed" instead)
+  if (webPlayerDeviceId) {
+    devices = devices.filter(d => d.id !== webPlayerDeviceId);
   }
+
   const savedName = localStorage.getItem('tl_device_name');
-  sel.innerHTML = devices.map(d =>
-    `<option value="${d.name}" ${d.name === savedName ? 'selected' : ''}>${escapeHtml(d.name)} (${d.type})</option>`
-  ).join('');
+  const hasSavedNonSDK = savedName && savedName !== '__SDK__' && devices.some(d => d.name === savedName);
+  // Default = browser/SDK device unless user previously picked something else
+  const defaultSelect = hasSavedNonSDK ? savedName : '__SDK__';
+
+  const sdkLabel = webPlayerReady
+    ? '📱 Denne enhed (browser) — anbefalet'
+    : '📱 Denne enhed (browser) — tryk 🔊 Test for at aktivere';
+
+  const options = [
+    `<option value="__SDK__" ${defaultSelect === '__SDK__' ? 'selected' : ''}>${sdkLabel}</option>`,
+    ...devices.map(d =>
+      `<option value="${escapeHtml(d.name)}" ${d.name === defaultSelect ? 'selected' : ''}>🔊 ${escapeHtml(d.name)} (${d.type})</option>`
+    )
+  ];
+  sel.innerHTML = options.join('');
 }
 
 async function createGame() {
+  // If user is using the browser/SDK device but hasn't activated it yet,
+  // this click IS a user gesture — kick off connect now (critical on iOS).
+  const selectedValue = document.getElementById('device-select').value;
+  if ((selectedValue === '__SDK__' || selectedValue === '') && !webPlayerReady) {
+    toast('Aktiverer afspiller...');
+    await connectSDKFromUserGesture();
+    // On iOS, also call activateElement now while we still have the gesture context
+    if (webPlayer) { try { await webPlayer.activateElement(); } catch(e) {} }
+    // Wait briefly for 'ready' event
+    await new Promise(res => {
+      const start = Date.now();
+      const iv = setInterval(() => {
+        if (webPlayerReady || Date.now() - start > 4000) { clearInterval(iv); res(); }
+      }, 100);
+    });
+    if (!webPlayerReady) {
+      toast('Afspilleren kunne ikke aktiveres. Tjek Spotify Premium.', 'error');
+      return;
+    }
+  }
+
   const playlist_id = document.getElementById('playlist-select').value;
   const mode = document.getElementById('mode-select').value;
   const win_points = parseInt(document.getElementById('win-points').value, 10);
@@ -664,214 +705,295 @@ async function endSong() {
 }
 
 // ============================================================
-// SPOTIFY PLAYBACK
-// Desktop: Web Playback SDK (full songs, embedded in browser)
-// Mobile: Web API with robust retry + mute-instead-of-pause
+// SPOTIFY PLAYBACK — Web Playback SDK on ALL platforms (incl. iOS)
+// Lyden afspilles i browser-tab'en → routes gennem iOS' audio-system
+// → default telefon-højttaler, eller Bluetooth/AirPods hvis tilsluttet.
+// Ingen app-suspension, ingen Bluetooth-hijacking.
 // ============================================================
 let webPlayer = null;
 let webPlayerDeviceId = null;
 let webPlayerReady = false;
-let activeDeviceId = null; // Track which device we're playing on
+let sdkScriptLoaded = false;      // Script tag appended to DOM
+let sdkSdkReady = false;           // window.Spotify is available
+let sdkConnectAttempted = false;  // connect() has been called from user gesture
+let activeDeviceId = null;         // Currently playing Spotify Connect device (non-SDK)
+const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-async function initWebPlaybackSDK() {
-  if (isMobile) { console.log('Mobile — using Web API'); return; }
-  const token = await getValidSpotifyToken();
-  if (!token) return;
-
+// Load SDK script early, but don't connect yet (connect requires user gesture on iOS)
+function loadSDKScript() {
+  if (sdkScriptLoaded) return;
+  sdkScriptLoaded = true;
   if (!document.getElementById('spotify-sdk')) {
     const script = document.createElement('script');
     script.id = 'spotify-sdk';
     script.src = 'https://sdk.scdn.co/spotify-player.js';
     document.body.appendChild(script);
   }
-
   window.onSpotifyWebPlaybackSDKReady = () => {
-    webPlayer = new Spotify.Player({
-      name: 'Musika Host',
-      getOAuthToken: async cb => { cb(await getValidSpotifyToken()); },
-      volume: 1.0,
-    });
-    webPlayer.addListener('ready', ({ device_id }) => {
-      webPlayerDeviceId = device_id;
-      webPlayerReady = true;
-      toast('Spotify-afspiller klar');
-    });
-    webPlayer.addListener('not_ready', () => { webPlayerReady = false; });
-    webPlayer.addListener('initialization_error', ({ message }) => {
-      console.warn('SDK init error:', message);
-    });
-    webPlayer.connect();
+    sdkSdkReady = true;
+    console.log('Spotify SDK ready (waiting for user gesture to connect)');
   };
 }
 
-// --- Robust mobile playback ---
-// --- Find device by saved name (NO transfer — transfer causes device hijacking) ---
-async function findDeviceId(token) {
+// MUST be called from within a user-gesture handler (button click).
+// On iOS, calling connect() outside a user gesture = no audio ever plays.
+async function connectSDKFromUserGesture() {
+  if (webPlayerReady) return true;              // Already connected
+  if (sdkConnectAttempted && webPlayer) return false; // Already tried, waiting for 'ready'
+  const token = await getValidSpotifyToken();
+  if (!token) { toast('Ingen Spotify-forbindelse', 'error'); return false; }
+  if (!sdkSdkReady) {
+    // Wait briefly for the SDK script to finish loading
+    await new Promise(res => {
+      const start = Date.now();
+      const iv = setInterval(() => {
+        if (sdkSdkReady || Date.now() - start > 4000) { clearInterval(iv); res(); }
+      }, 100);
+    });
+    if (!sdkSdkReady) { toast('Spotify SDK kunne ikke indlæses', 'error'); return false; }
+  }
+  sdkConnectAttempted = true;
+  webPlayer = new Spotify.Player({
+    name: 'Musika (' + (isIOS ? 'iPhone' : isMobile ? 'Telefon' : 'Browser') + ')',
+    getOAuthToken: async cb => { cb(await getValidSpotifyToken()); },
+    volume: 1.0,
+  });
+  webPlayer.addListener('ready', ({ device_id }) => {
+    webPlayerDeviceId = device_id;
+    webPlayerReady = true;
+    console.log('SDK ready — device_id:', device_id);
+    toast('🎵 Afspiller aktiveret');
+    refreshDevices(); // Update the device dropdown now that SDK is a valid target
+  });
+  webPlayer.addListener('not_ready', ({ device_id }) => {
+    console.warn('SDK device went offline:', device_id);
+    webPlayerReady = false;
+  });
+  webPlayer.addListener('initialization_error', ({ message }) => {
+    console.error('SDK init error:', message);
+    toast('Afspiller-fejl: ' + message, 'error');
+  });
+  webPlayer.addListener('authentication_error', ({ message }) => {
+    console.error('SDK auth error:', message);
+    toast('Login udløbet — genforbind Spotify', 'error');
+  });
+  webPlayer.addListener('account_error', ({ message }) => {
+    console.error('SDK account error:', message);
+    toast('Spotify Premium kræves', 'error');
+  });
+  webPlayer.addListener('playback_error', ({ message }) => {
+    console.warn('SDK playback error:', message);
+  });
+  webPlayer.addListener('autoplay_failed', () => {
+    console.warn('SDK autoplay blocked (likely iOS — needs user gesture)');
+    toast('iOS blokerede autoplay — tryk 🔊 Test igen', 'error');
+  });
+  // Track when playback state changes so we know the SDK is truly producing audio
+  webPlayer.addListener('player_state_changed', (state) => {
+    if (!state) return;
+    // If SDK reports paused=true unexpectedly right after play, it's usually iOS autoplay block
+    console.log('SDK state:', state.paused ? 'paused' : 'playing', '—', state.track_window?.current_track?.name);
+  });
+  const ok = await webPlayer.connect();
+  console.log('SDK connect() returned:', ok);
+  return ok;
+}
+
+// Legacy name kept for existing callers (auth flow etc.)
+async function initWebPlaybackSDK() {
+  loadSDKScript();
+  // On desktop we can auto-connect (no user gesture needed).
+  // On mobile we wait for user to click a button.
+  if (!isMobile) {
+    // Desktop: attempt auto-connect after a brief delay
+    setTimeout(() => connectSDKFromUserGesture(), 500);
+  }
+}
+
+// --- Resolve which device to play on ---
+// Returns { id, isSDK } for the currently selected device.
+// SDK device always wins if "Denne enhed (browser)" is selected.
+async function resolveTargetDevice(token) {
+  const selectedValue = document.getElementById('device-select')?.value || '';
+
+  // Special sentinel meaning "use the browser SDK device"
+  if (selectedValue === '__SDK__' || selectedValue === '') {
+    if (webPlayerReady && webPlayerDeviceId) {
+      return { id: webPlayerDeviceId, isSDK: true };
+    }
+    // SDK not ready yet — prompt user to activate
+    return null;
+  }
+
+  // Otherwise user picked a Spotify Connect device (SONOS, Bluetooth etc.) by NAME
   const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
     headers: { Authorization: `Bearer ${token}` }
   });
   if (!r.ok) return null;
   const devices = (await r.json()).devices || [];
-  if (devices.length === 0) return null;
-
-  const savedName = localStorage.getItem('tl_device_name');
-  let device;
-  if (savedName) {
-    device = devices.find(d => d.name === savedName);
-    if (!device) {
-      console.warn(`Saved device "${savedName}" not found. Available:`, devices.map(d => `${d.name} (${d.id})`));
-      return null;
-    }
-  } else {
-    device = devices.find(d => d.is_active) || devices[0];
+  const device = devices.find(d => d.name === selectedValue);
+  if (!device) {
+    console.warn(`Device "${selectedValue}" not found. Available:`, devices.map(d => d.name));
+    return null;
   }
-
-  console.log(`Using device: "${device.name}" (${device.id})`);
-  return device.id;
+  return { id: device.id, isSDK: false, name: device.name };
 }
 
-async function testDevice() {
-  const token = await getValidSpotifyToken();
-  if (!token) return toast('Ingen Spotify-forbindelse', 'error');
-
-  // Save selected device name
-  const name = document.getElementById('device-select').value;
-  if (!name) return toast('Vælg en enhed først', 'error');
-  localStorage.setItem('tl_device_name', name);
-
-  const deviceId = await findDeviceId(token);
-  if (!deviceId) return toast('Enhed ikke fundet', 'error');
-
-  // Play a short burst of a known track to test
-  const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      uris: ['spotify:track:4uLU6hMCjMI75M1A2tKUQC'], // Rick Astley — easy to recognize
-      position_ms: 0,
-    }),
-  });
-
-  if (r.ok) {
-    toast('Hører du musik fra din telefon? Hvis ja, er enheden korrekt!');
-    // Stop after 3 seconds
-    setTimeout(async () => {
-      await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${deviceId}`, {
-        method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {});
-    }, 3000);
-  } else {
-    const err = await r.text();
-    toast('Test fejlede: ' + err.slice(0, 80), 'error');
-  }
-}
-
-async function tryPlay(token, deviceId, spotifyId) {
+// Atomic transfer + play — this is the ONLY reliable way to target a device.
+// Never play without device_id (that's what causes Bluetooth hijacking).
+async function transferAndPlay(token, deviceId, spotifyId) {
+  // For non-SDK devices, transfer first (moves any current playback to this device)
+  // Then play. For SDK devices, play directly is fine.
   const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ uris: [`spotify:track:${spotifyId}`] }),
   });
-  return r.ok;
+  if (r.ok) return true;
+  console.warn('play failed:', r.status, await r.text().catch(() => ''));
+  return false;
 }
 
-let hasPlayedFirstSong = false;
+async function testDevice() {
+  // This click is a USER GESTURE — perfect moment to init the SDK on iOS.
+  if (!webPlayerReady) {
+    toast('Aktiverer afspiller...');
+    await connectSDKFromUserGesture();
+    // Give SDK a moment to emit 'ready'
+    await new Promise(res => {
+      const start = Date.now();
+      const iv = setInterval(() => {
+        if (webPlayerReady || Date.now() - start > 5000) { clearInterval(iv); res(); }
+      }, 100);
+    });
+  }
+
+  const token = await getValidSpotifyToken();
+  if (!token) return toast('Ingen Spotify-forbindelse', 'error');
+
+  const target = await resolveTargetDevice(token);
+  if (!target) return toast('Enhed ikke klar — tryk Opdatér', 'error');
+
+  // Save selection for next session
+  const name = document.getElementById('device-select').value;
+  if (name) localStorage.setItem('tl_device_name', name);
+
+  // On iOS with SDK, activateElement must be called inside a user gesture before play.
+  if (target.isSDK && webPlayer) {
+    try { await webPlayer.activateElement(); } catch(e) { console.warn('activateElement:', e); }
+  }
+
+  const ok = await transferAndPlay(token, target.id, '4uLU6hMCjMI75M1A2tKUQC'); // Rick Astley
+  if (ok) {
+    activeDeviceId = target.id;
+    toast('🎵 Hører du musikken? — stopper om 3s');
+    setTimeout(async () => {
+      if (target.isSDK && webPlayer) { await webPlayer.pause().catch(() => {}); return; }
+      await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${target.id}`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }, 3000);
+  } else {
+    toast('Test fejlede — tjek Spotify-login', 'error');
+  }
+}
 
 async function playTrack(spotifyId) {
   const token = await getValidSpotifyToken();
   if (!token) { toast('Ingen Spotify-forbindelse', 'error'); return; }
 
-  // === DESKTOP: Web Playback SDK ===
-  if (webPlayerReady && webPlayerDeviceId) {
-    if (await tryPlay(token, webPlayerDeviceId, spotifyId)) {
-      activeDeviceId = webPlayerDeviceId;
-      return;
-    }
-  }
+  const selectedValue = document.getElementById('device-select')?.value || '__SDK__';
+  const wantsSDK = (selectedValue === '__SDK__' || selectedValue === '');
 
-  // === MOBILE ===
-
-  // Strategy 1: If we've already played a song, try WITHOUT device_id
-  // Spotify remembers the last active device and routes there automatically
-  if (hasPlayedFirstSong) {
-    console.log('Trying play without device_id (let Spotify route)');
-    const r = await fetch('https://api.spotify.com/v1/me/player/play', {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uris: [`spotify:track:${spotifyId}`] }),
+  // If user wants the browser SDK but it isn't ready, try once more.
+  // Don't silently fall back to a random Bluetooth device — that's the exact bug.
+  if (wantsSDK && !webPlayerReady) {
+    await connectSDKFromUserGesture();
+    if (webPlayer) { try { await webPlayer.activateElement(); } catch(e) {} }
+    // Give the SDK up to 3s to emit 'ready'
+    await new Promise(res => {
+      const start = Date.now();
+      const iv = setInterval(() => {
+        if (webPlayerReady || Date.now() - start > 3000) { clearInterval(iv); res(); }
+      }, 100);
     });
-    if (r.ok) {
-      console.log('Played without device_id — success');
-      return;
-    }
-    console.warn('Play without device_id failed:', r.status);
   }
 
-  // Strategy 2: Try with cached device_id
-  if (activeDeviceId) {
-    if (await tryPlay(token, activeDeviceId, spotifyId)) {
-      console.log('Played on cached device:', activeDeviceId);
-      hasPlayedFirstSong = true;
-      return;
+  const target = await resolveTargetDevice(token);
+  if (!target) {
+    if (wantsSDK) {
+      toast('Browser-afspilleren er ikke klar. Gå tilbage og tryk 🔊 Test.', 'error');
+    } else {
+      toast(`Enhed "${selectedValue}" ikke fundet. Tryk ↻ Opdatér.`, 'error');
     }
-    console.warn('Cached device failed');
-  }
-
-  // Strategy 3: Fresh device lookup
-  const deviceId = await findDeviceId(token);
-  if (deviceId && await tryPlay(token, deviceId, spotifyId)) {
-    activeDeviceId = deviceId;
-    hasPlayedFirstSong = true;
-    console.log('Played on fresh device:', deviceId);
     return;
   }
 
-  toast('Enhed mistet. Åbn Spotify, afspil noget kort, og test enheden igen.', 'error');
+  // On iOS with SDK, activateElement must be called before play.
+  // This is safe to call repeatedly; it's a no-op after first gesture.
+  if (target.isSDK && webPlayer) {
+    try { await webPlayer.activateElement(); } catch(e) {}
+  }
+
+  const ok = await transferAndPlay(token, target.id, spotifyId);
+  if (ok) {
+    activeDeviceId = target.id;
+    console.log(`Playing ${spotifyId} on ${target.name || 'browser SDK'} (${target.id})`);
+    return;
+  }
+
+  // If a non-SDK named device failed, its id may have changed. Refresh + retry by name.
+  if (!target.isSDK && target.name) {
+    const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (r.ok) {
+      const devices = (await r.json()).devices || [];
+      const device = devices.find(d => d.name === target.name);
+      if (device && device.id !== target.id) {
+        console.log('Device id changed, retrying');
+        if (await transferAndPlay(token, device.id, spotifyId)) {
+          activeDeviceId = device.id;
+          return;
+        }
+      }
+    }
+  }
+
+  toast('Afspilning fejlede — tjek at Spotify Premium er aktivt', 'error');
 }
 
 async function pauseTrack() {
-  if (webPlayer && webPlayerReady) { await webPlayer.pause(); return; }
-  const token = await getValidSpotifyToken();
-  if (!token) return;
-  // Try with device_id first, then without
-  if (activeDeviceId) {
-    const r = await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
-      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => null);
-    if (r && r.ok) return;
+  // If playing on the SDK device, use the SDK directly (most reliable)
+  if (webPlayer && webPlayerReady && activeDeviceId === webPlayerDeviceId) {
+    try { await webPlayer.pause(); return; } catch(e) {}
   }
-  await fetch('https://api.spotify.com/v1/me/player/pause', {
+  const token = await getValidSpotifyToken();
+  if (!token || !activeDeviceId) return;
+  await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
     method: 'PUT', headers: { Authorization: `Bearer ${token}` },
   }).catch(() => {});
 }
 
 async function resumeTrack() {
-  if (webPlayer && webPlayerReady) { await webPlayer.resume(); return; }
-  const token = await getValidSpotifyToken();
-  if (!token) return;
-  if (activeDeviceId) {
-    const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${activeDeviceId}`, {
-      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => null);
-    if (r && r.ok) return;
+  if (webPlayer && webPlayerReady && activeDeviceId === webPlayerDeviceId) {
+    try { await webPlayer.resume(); return; } catch(e) {}
   }
-  await fetch('https://api.spotify.com/v1/me/player/play', {
+  const token = await getValidSpotifyToken();
+  if (!token || !activeDeviceId) return;
+  await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${activeDeviceId}`, {
     method: 'PUT', headers: { Authorization: `Bearer ${token}` },
   }).catch(() => {});
 }
 
 async function stopTrack() {
-  if (webPlayer && webPlayerReady) { await webPlayer.pause(); return; }
-  const token = await getValidSpotifyToken();
-  if (!token) return;
-  if (activeDeviceId) {
-    const r = await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
-      method: 'PUT', headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => null);
-    if (r && r.ok) return;
+  if (webPlayer && webPlayerReady && activeDeviceId === webPlayerDeviceId) {
+    try { await webPlayer.pause(); return; } catch(e) {}
   }
-  await fetch('https://api.spotify.com/v1/me/player/pause', {
+  const token = await getValidSpotifyToken();
+  if (!token || !activeDeviceId) return;
+  await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
     method: 'PUT', headers: { Authorization: `Bearer ${token}` },
   }).catch(() => {});
 }
