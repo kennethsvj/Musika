@@ -222,6 +222,85 @@
   body.manual-mode [data-manual-hide="true"] {
     display: none !important;
   }
+
+  /* ============ RULES MODAL ============ */
+  .rules-overlay {
+    position: fixed; inset: 0; z-index: 1100;
+    background: rgba(0,0,0,0.85);
+    display: flex; align-items: flex-end; justify-content: center;
+    overflow: hidden;
+  }
+  .rules-sheet {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 20px 20px 0 0;
+    width: 100%; max-width: 520px; max-height: 90vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.6);
+    animation: rulesSlideUp 0.25s ease-out;
+  }
+  @keyframes rulesSlideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  .rules-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 20px 14px; border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .rules-header h2 { font-size: 18px; font-weight: 800; margin: 0; }
+  .rules-close {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    width: 36px; height: 36px; border-radius: 50%; padding: 0;
+    font-size: 16px; cursor: pointer; box-shadow: none;
+  }
+  .rules-close:hover { color: var(--text); border-color: var(--text); }
+  .rules-body {
+    padding: 18px 20px; overflow-y: auto; flex: 1;
+    -webkit-overflow-scrolling: touch;
+  }
+  .rules-section { margin-bottom: 22px; }
+  .rules-section:last-child { margin-bottom: 0; }
+  .rules-section h3 {
+    font-size: 13px; font-weight: 800; color: var(--accent-2);
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px;
+  }
+  .rules-section p { font-size: 14px; line-height: 1.6; color: var(--text); }
+  .rules-list {
+    list-style: none; padding: 0; margin: 0;
+    counter-reset: rules-counter;
+  }
+  .rules-list li {
+    position: relative; padding: 8px 0 8px 36px;
+    counter-increment: rules-counter;
+    font-size: 14px; line-height: 1.5;
+  }
+  .rules-list li::before {
+    content: counter(rules-counter);
+    position: absolute; left: 0; top: 8px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent-2); color: black;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 12px;
+  }
+  .rules-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .rules-table td {
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+    vertical-align: top; line-height: 1.45;
+  }
+  .rules-table td:first-child {
+    white-space: nowrap; padding-right: 14px; color: var(--accent);
+  }
+  .rules-table tr:last-child td { border-bottom: none; }
+  .rules-tip {
+    background: var(--panel-light); padding: 14px 16px;
+    border-radius: 10px; border-left: 3px solid var(--accent-2);
+  }
+  .rules-tip p { font-size: 13px; }
+  .rules-footer {
+    padding: 14px 20px; border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .rules-footer button { width: 100%; }
 </style>
 </head>
 <body>
@@ -277,7 +356,10 @@
       Vælg SONOS/andet for at streame dertil i stedet.
     </p>
     <button style="margin-top:18px;" onclick="createGame()">Opret spil</button>
-    <button class="secondary" style="margin-top:8px;" onclick="logout()">Log ud</button>
+    <div style="display:flex; gap:8px; margin-top:8px;">
+      <button class="secondary" style="flex:1;" onclick="showRules()">❓ Regler</button>
+      <button class="secondary" style="flex:1;" onclick="logout()">Log ud</button>
+    </div>
   </div>
 </div>
 
@@ -347,8 +429,85 @@
   </div>
 
   <div class="panel">
-    <div class="bottom-actions" style="margin:0; padding:0; border:none;">
-      <button class="danger" onclick="endGame()">Afslut spil</button>
+    <div class="bottom-actions" style="margin:0; padding:0; border:none; display:flex; gap:8px;">
+      <button class="secondary" style="flex:1;" onclick="showRules()">❓ Regler</button>
+      <button class="danger" style="flex:1;" onclick="endGame()">Afslut spil</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ RULES MODAL ============ -->
+<div id="rules-overlay" class="rules-overlay hidden">
+  <div class="rules-sheet">
+    <div class="rules-header">
+      <h2>🎵 Musika — spilleregler</h2>
+      <button class="rules-close" onclick="hideRules()" aria-label="Luk">✕</button>
+    </div>
+
+    <div class="rules-body">
+      <div class="rules-section">
+        <h3>Spillets gang</h3>
+        <p>
+          Hver spiller bygger sin egen tidslinje af sange. Kortene har en QR-kode på den ene side
+          og sangens titel, kunstner og årstal på den anden. Målet er at placere sange i korrekt
+          rækkefølge ud fra årstal — uden at kigge på årstallet først.
+        </p>
+      </div>
+
+      <div class="rules-section">
+        <h3>Din tur</h3>
+        <ol class="rules-list">
+          <li><strong>Scan et kort</strong> i host-appen. Der tælles ned fra 3, og sangen starter.</li>
+          <li><strong>Lyt</strong> og gæt hvornår sangen er fra.</li>
+          <li><strong>Placér kortet</strong> i din tidslinje — før, mellem eller efter dine andre kort.</li>
+          <li><strong>Vend kortet</strong>. Er årstallet på rette plads? Så beholder du kortet. Hvis ikke, smides det væk.</li>
+        </ol>
+      </div>
+
+      <div class="rules-section">
+        <h3>Spiltilstande</h3>
+        <table class="rules-table">
+          <tr>
+            <td><strong>Klassisk Hitster</strong></td>
+            <td>Manuel pointtælling — I bruger selv kortene som point. Den der først har 10 kort vinder.</td>
+          </tr>
+          <tr>
+            <td><strong>Classic</strong></td>
+            <td>1 point for korrekt årstal.</td>
+          </tr>
+          <tr>
+            <td><strong>Advanced</strong></td>
+            <td>1 point for årstal + 1 bonus for korrekt kunstner.</td>
+          </tr>
+          <tr>
+            <td><strong>Expert</strong></td>
+            <td>1 point for årstal + 1 for kunstner + 1 for titel = op til 3.</td>
+          </tr>
+          <tr>
+            <td><strong>Mixed</strong></td>
+            <td>Spilleren satser 1, 2 eller 3 point før sangen — "alt eller intet".</td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="rules-section">
+        <h3>Vinderen</h3>
+        <p>
+          I Klassisk Hitster vinder den første spiller der har <strong>10 kort</strong> i sin tidslinje.
+          I de andre tilstande vinder den første der når målet (default 15 point).
+        </p>
+      </div>
+
+      <div class="rules-section rules-tip">
+        <p>
+          💡 <strong>Tip:</strong> Hvis et årstal matcher et eksisterende kort i din tidslinje,
+          kan kortet placeres lige før eller lige efter — begge dele tæller som korrekt.
+        </p>
+      </div>
+    </div>
+
+    <div class="rules-footer">
+      <button onclick="hideRules()">Luk</button>
     </div>
   </div>
 </div>
@@ -731,12 +890,20 @@ async function onScanned(decoded) {
   // 3-second countdown before the song plays — gives players time to get ready
   await showCountdown(3);
 
-  await playTrack(currentTrack.spotify_id);
+  // Smooth crossfade: render the playing overlay BEHIND the still-visible countdown,
+  // then hide the countdown in the next frame. Avoids flashing the scan screen.
   showPlayingOverlay();
+  await new Promise(r => requestAnimationFrame(r));
+  document.getElementById('countdown-overlay').classList.add('hidden');
+
+  await playTrack(currentTrack.spotify_id);
 }
 
 // ============================================================
 // COUNTDOWN (3...2...1 before the song starts)
+// NOTE: Leaves overlay visible on resolve — caller is responsible for hiding it
+// once the next screen has been rendered. This prevents a flash of the game UI
+// between countdown disappearing and playing overlay appearing.
 // ============================================================
 function showCountdown(seconds) {
   return new Promise(resolve => {
@@ -744,6 +911,7 @@ function showCountdown(seconds) {
     const numEl = document.getElementById('countdown-number');
     // Hide any other screens while counting down
     document.getElementById('scan-section').classList.add('hidden');
+    document.getElementById('scoring-section').classList.add('hidden');
     document.getElementById('ready-next-section').classList.add('hidden');
     overlay.classList.remove('hidden');
 
@@ -760,7 +928,7 @@ function showCountdown(seconds) {
       remaining--;
       if (remaining <= 0) {
         clearInterval(iv);
-        overlay.classList.add('hidden');
+        // Do NOT hide the overlay here — caller hides it once the next screen is up.
         resolve();
       } else {
         renderNumber(remaining);
@@ -1221,6 +1389,16 @@ function show(id) {
     document.getElementById(s).classList.toggle('hidden', s !== id));
 }
 function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ============================================================
+// RULES MODAL
+// ============================================================
+function showRules() {
+  document.getElementById('rules-overlay').classList.remove('hidden');
+}
+function hideRules() {
+  document.getElementById('rules-overlay').classList.add('hidden');
+}
 function toast(msg, type) {
   const el = document.getElementById('toast');
   el.textContent = msg;
