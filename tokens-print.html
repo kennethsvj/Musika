@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Musika – Tokens til print</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0; background: #555; font-family: -apple-system, system-ui, sans-serif; }
+
+  .toolbar {
+    position: fixed; top: 16px; right: 16px; z-index: 100;
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .toolbar button {
+    padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer;
+    font-weight: 600; background: #ff3864; color: white; font-family: inherit;
+  }
+  .toolbar button.secondary { background: white; color: #333; }
+  .toolbar select, .toolbar label {
+    padding: 10px 14px; border: none; border-radius: 8px; background: white;
+    color: #333; font-weight: 600; font-family: inherit; font-size: 14px;
+  }
+  .toolbar label { display: flex; align-items: center; gap: 8px; padding-left: 14px; }
+  .toolbar label input { width: 60px; }
+
+  /* ============ A4 SHEET ============ */
+  .sheet {
+    width: 210mm; height: 297mm; background: white;
+    margin: 16px auto;
+    padding: 15mm;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    page-break-after: always; break-after: page;
+    position: relative; overflow: hidden;
+  }
+  .sheet:last-child { page-break-after: auto; break-after: auto; }
+
+  .sheet-title {
+    text-align: center; margin-bottom: 8mm;
+    font-size: 11pt; color: #666; font-weight: 600;
+    letter-spacing: 2px; text-transform: uppercase;
+  }
+  .sheet-title strong { color: #ff3864; letter-spacing: 3px; font-size: 14pt; }
+
+  /* ============ TOKENS GRID — 6 cols × 8 rows = 48 tokens per page ============ */
+  .tokens-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 3mm;
+  }
+
+  .token {
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-family: -apple-system, system-ui, sans-serif;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    position: relative;
+    border: 2px solid rgba(0,0,0,0.08);
+  }
+
+  .token .token-inner {
+    width: 78%; height: 78%; border-radius: 50%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    border: 2px dashed rgba(255,255,255,0.35);
+    position: relative;
+  }
+
+  .token .token-value {
+    font-size: 14pt; font-weight: 900;
+    color: white; text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+    line-height: 1;
+  }
+  .token .token-label {
+    font-size: 6.5pt; font-weight: 700;
+    color: white; letter-spacing: 1.5px;
+    text-transform: uppercase;
+    opacity: 0.88; margin-top: 1mm;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  }
+  .token .token-brand {
+    position: absolute; bottom: 2mm;
+    font-size: 5pt; font-weight: 800; letter-spacing: 2px;
+    color: white; opacity: 0.6;
+    text-transform: uppercase;
+  }
+
+  /* Color palette — each "denomination" gets its own hue like Hitster tokens */
+  .token.c-red    { background: radial-gradient(circle at 30% 30%, #ff6b8a 0%, #d01d4a 60%, #8a0025 100%); }
+  .token.c-orange { background: radial-gradient(circle at 30% 30%, #ffb366 0%, #e8691b 60%, #a0430a 100%); }
+  .token.c-yellow { background: radial-gradient(circle at 30% 30%, #ffe066 0%, #d4a60a 60%, #8a6800 100%); }
+  .token.c-green  { background: radial-gradient(circle at 30% 30%, #6fe8a3 0%, #16a866 60%, #0a6840 100%); }
+  .token.c-blue   { background: radial-gradient(circle at 30% 30%, #6fb8ff 0%, #1e6fd0 60%, #0a3d80 100%); }
+  .token.c-purple { background: radial-gradient(circle at 30% 30%, #c89fff 0%, #7430c8 60%, #3d1880 100%); }
+
+  /* Back side of tokens — subtle branded pattern */
+  .sheet.back-side .token {
+    background: linear-gradient(135deg, #1a1a2e 0%, #2a1a3e 100%);
+    border: 2px solid rgba(0,0,0,0.2);
+  }
+  .sheet.back-side .token .token-inner {
+    border: 2px solid rgba(255,212,0,0.25);
+  }
+  .sheet.back-side .token .token-value { display: none; }
+  .sheet.back-side .token .token-label { display: none; }
+  .sheet.back-side .token .token-brand {
+    position: static; font-size: 8pt; letter-spacing: 4px; color: #ff3864; opacity: 1;
+  }
+  .sheet.back-side .token .vinyl-mini {
+    width: 60%; aspect-ratio: 1/1; border-radius: 50%;
+    background: radial-gradient(circle at center,
+      #000 0%, #000 10%,
+      #ff3864 10%, #ff3864 12%,
+      #000 12%, #000 22%,
+      #00d4ff 22%, #00d4ff 24%,
+      #000 24%, #000 34%,
+      #ff3864 34%, #ff3864 36%,
+      #000 36%, #000 50%);
+    margin-bottom: 2mm;
+  }
+
+  @media print {
+    body { background: white; }
+    .toolbar { display: none; }
+    .sheet { margin: 0; box-shadow: none; }
+    @page { size: A4; margin: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <label>Spillere:
+    <input type="number" id="player-count" value="4" min="1" max="12" onchange="render()">
+  </label>
+  <label>Per spiller:
+    <input type="number" id="tokens-per-player" value="5" min="1" max="12" onchange="render()">
+  </label>
+  <label>
+    <input type="checkbox" id="with-backs" checked onchange="render()">
+    Inkl. bagsider
+  </label>
+  <button onclick="window.print()">🖨️ Print</button>
+  <button class="secondary" onclick="window.close()">Luk</button>
+</div>
+
+<div id="sheets"></div>
+
+<script>
+// 6 colors × 8 rows = 48 tokens per page. We compute how many pages we need
+// based on (player_count × tokens_per_player).
+const COLS = 6;
+const ROWS = 8;
+const PER_PAGE = COLS * ROWS;
+
+// Token colors in a repeating cycle — gives variation even for large counts
+const COLORS = ['c-red', 'c-orange', 'c-yellow', 'c-green', 'c-blue', 'c-purple'];
+
+function makeFrontToken(colorClass, index) {
+  // Number each token 1-N so players can identify ownership after the game
+  return `
+    <div class="token ${colorClass}">
+      <div class="token-inner">
+        <div class="token-value">★</div>
+        <div class="token-label">Musika</div>
+      </div>
+      <div class="token-brand">#${index}</div>
+    </div>
+  `;
+}
+
+function makeBackToken() {
+  return `
+    <div class="token">
+      <div class="vinyl-mini"></div>
+      <div class="token-brand">Musika</div>
+    </div>
+  `;
+}
+
+function makeEmptyToken() {
+  return `<div class="token" style="background:transparent; border:1px dashed #ddd;"></div>`;
+}
+
+function render() {
+  const playerCount = parseInt(document.getElementById('player-count').value, 10) || 4;
+  const perPlayer = parseInt(document.getElementById('tokens-per-player').value, 10) || 5;
+  const withBacks = document.getElementById('with-backs').checked;
+
+  const total = playerCount * perPlayer;
+  const pages = Math.ceil(total / PER_PAGE);
+  const sheets = document.getElementById('sheets');
+  sheets.innerHTML = '';
+
+  let printed = 0;
+  for (let p = 0; p < pages; p++) {
+    // ---- FRONT ----
+    const frontTokens = [];
+    for (let i = 0; i < PER_PAGE; i++) {
+      if (printed < total) {
+        // Cycle colors by PLAYER so each player's tokens are the same color
+        const playerIdx = Math.floor(printed / perPlayer);
+        const color = COLORS[playerIdx % COLORS.length];
+        frontTokens.push(makeFrontToken(color, printed + 1));
+        printed++;
+      } else {
+        frontTokens.push(makeEmptyToken());
+      }
+    }
+    sheets.insertAdjacentHTML('beforeend', `
+      <div class="sheet">
+        <div class="sheet-title"><strong>Musika</strong> · Tokens (side ${p + 1}/${pages}) — ${playerCount} spillere × ${perPlayer} tokens</div>
+        <div class="tokens-grid">${frontTokens.join('')}</div>
+      </div>
+    `);
+
+    // ---- BACK ----
+    if (withBacks) {
+      // Count how many non-empty fronts are on this page (for matching back count)
+      const nonEmpty = frontTokens.filter(t => !t.includes('transparent')).length;
+      const backTokens = [];
+      // Mirror column order so back-to-back duplex printing aligns (rightmost back = leftmost front)
+      for (let r = 0; r < ROWS; r++) {
+        const rowStart = r * COLS;
+        const rowTokens = [];
+        for (let c = 0; c < COLS; c++) {
+          const idx = rowStart + c;
+          if (idx < nonEmpty) rowTokens.push(makeBackToken());
+          else rowTokens.push(makeEmptyToken());
+        }
+        backTokens.push(...rowTokens.reverse()); // reverse each row for duplex mirror
+      }
+      sheets.insertAdjacentHTML('beforeend', `
+        <div class="sheet back-side">
+          <div class="sheet-title"><strong>Musika</strong> · Tokens bagside (side ${p + 1}/${pages})</div>
+          <div class="tokens-grid">${backTokens.join('')}</div>
+        </div>
+      `);
+    }
+  }
+}
+
+render();
+</script>
+</body>
+</html>
