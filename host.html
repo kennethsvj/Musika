@@ -326,6 +326,7 @@ let currentUser = null, currentGame = null, players = [], spotifyToken = null, s
 let currentCard = null, currentTrack = null;
 let playbackStartTime = null, playbackTimer = null, isPaused = false, totalPausedMs = 0, pauseStartTime = null;
 let wakeLock = null;
+let keepAliveInterval = null;
 
 // ============================================================
 // WAKE LOCK — keep screen on
@@ -465,6 +466,7 @@ function subscribeToPlayers() {
 
 async function cancelGame() {
   if (!confirm('Luk spillet? Alle spillere bliver sparket ud.')) return;
+  stopKeepAlive();
   await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
   await supa.from('games').delete().eq('id', currentGame.id);
   currentGame = null;
@@ -530,6 +532,7 @@ function checkWinner() {
 async function endGame() {
   if (!confirm('Afslut spillet? Alle spillere ser slutstillingen.')) return;
   await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
+  stopKeepAlive();
   await stopTrack();
   await releaseWakeLock();
   toast('Spillet er afsluttet');
@@ -618,6 +621,32 @@ function showPlayingOverlay() {
   pauseStartTime = null;
   playbackStartTime = Date.now();
   startPlaybackTimer();
+  startKeepAlive();
+}
+
+// Keep Spotify device alive by pinging playback state every 15s
+function startKeepAlive() {
+  stopKeepAlive();
+  keepAliveInterval = setInterval(async () => {
+    const token = await getValidSpotifyToken();
+    if (!token || !activeDeviceId) return;
+    try {
+      const r = await fetch('https://api.spotify.com/v1/me/player', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (r.ok) {
+        const state = await r.json();
+        if (state && state.device) {
+          // Update cached device ID in case it changed
+          activeDeviceId = state.device.id;
+        }
+      }
+    } catch(e) { console.warn('Keepalive ping failed:', e); }
+  }, 15000);
+}
+
+function stopKeepAlive() {
+  if (keepAliveInterval) { clearInterval(keepAliveInterval); keepAliveInterval = null; }
 }
 
 function startPlaybackTimer() {
@@ -658,6 +687,7 @@ async function togglePause() {
 
 async function endSong() {
   stopPlaybackTimer();
+  stopKeepAlive();
   await stopTrack();
   document.getElementById('playing-overlay').classList.add('hidden');
   showScoring();
