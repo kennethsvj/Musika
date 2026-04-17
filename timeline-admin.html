@@ -88,14 +88,14 @@
   /* Track list */
   .track-list { display: flex; flex-direction: column; gap: 6px; max-height: 500px; overflow-y: auto; }
   .track-row {
-    display: grid; grid-template-columns: 48px 1fr 60px 60px;
-    gap: 10px; align-items: center; padding: 8px; background: var(--panel-light);
+    display: grid; grid-template-columns: 48px 1fr 70px 36px 36px 60px;
+    gap: 8px; align-items: center; padding: 8px; background: var(--panel-light);
     border-radius: 8px; font-size: 13px;
   }
   .track-row img { width: 40px; height: 40px; border-radius: 4px; }
   .track-row .year { font-weight: 700; color: var(--accent-2); text-align: center; }
   .track-row .year-input {
-    width: 60px; padding: 4px 6px; text-align: center;
+    width: 70px; padding: 4px 6px; text-align: center;
     background: transparent; border: 1px solid transparent;
     color: var(--accent-2); font-weight: 700; font-size: 13px;
     border-radius: 4px; font-family: inherit;
@@ -103,12 +103,66 @@
   }
   .track-row .year-input:hover { border-color: var(--border); background: rgba(0,0,0,0.2); }
   .track-row .year-input:focus { border-color: var(--accent); background: rgba(0,0,0,0.3); outline: none; color: var(--text); }
-  /* Hide spinner arrows */
   .track-row .year-input::-webkit-outer-spin-button,
   .track-row .year-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .track-row .year-input { -moz-appearance: textfield; }
-  .track-row button { padding: 4px 8px; font-size: 11px; background: transparent; border: 1px solid var(--border); color: var(--muted); }
-  .track-row button:hover { color: var(--accent); border-color: var(--accent); box-shadow: none; }
+  .track-row .icon-btn {
+    padding: 0; width: 32px; height: 32px; border-radius: 50%;
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    font-size: 13px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; box-shadow: none;
+  }
+  .track-row .icon-btn:hover { color: var(--accent-2); border-color: var(--accent-2); }
+  .track-row .icon-btn.playing { color: black; background: var(--accent-2); border-color: var(--accent-2); }
+  .track-row button.remove-btn { padding: 4px 8px; font-size: 11px; background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .track-row button.remove-btn:hover { color: var(--accent); border-color: var(--accent); box-shadow: none; }
+
+  /* ============ TRACK EDIT MODAL ============ */
+  .edit-overlay {
+    position: fixed; inset: 0; z-index: 1200;
+    background: rgba(0,0,0,0.85);
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .edit-sheet {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; width: 100%; max-width: 480px;
+    padding: 22px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  }
+  .edit-sheet h2 { margin-bottom: 16px; font-size: 18px; }
+  .edit-sheet .edit-cover {
+    width: 80px; height: 80px; border-radius: 8px; object-fit: cover;
+    margin: 0 auto 16px; display: block;
+  }
+  .edit-sheet label { margin-top: 12px; }
+  .edit-sheet .edit-actions {
+    display: flex; gap: 10px; margin-top: 20px;
+  }
+  .edit-sheet .edit-actions button { flex: 1; }
+
+  /* ============ NOW PLAYING BAR (sticky player in admin) ============ */
+  .now-playing-bar {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 12px 16px;
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    z-index: 500; max-width: 520px; width: calc(100% - 32px);
+  }
+  .now-playing-bar img { width: 40px; height: 40px; border-radius: 6px; }
+  .now-playing-bar .np-info { flex: 1; min-width: 0; }
+  .now-playing-bar .np-title { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now-playing-bar .np-artist { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now-playing-bar .np-close {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    width: 32px; height: 32px; border-radius: 50%; padding: 0;
+    cursor: pointer; flex-shrink: 0; box-shadow: none;
+  }
+  .now-playing-bar .np-close:hover { color: var(--accent); border-color: var(--accent); }
+  .now-playing-bar iframe {
+    display: none; /* The iframe controls playback invisibly; we render our own compact UI */
+  }
 
   .stats { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
   .stat strong { color: var(--accent-2); }
@@ -787,18 +841,141 @@ function renderTracks() {
     return;
   }
   list.innerHTML = tracks.map(t => `
-    <div class="track-row">
+    <div class="track-row" data-track-id="${t.id}">
       <img src="${t.cover_url || ''}" onerror="this.style.visibility='hidden'">
-      <div>
-        <div style="font-weight:600;">${escapeHtml(t.title)}</div>
-        <div style="color:var(--muted); font-size:12px;">${escapeHtml(t.artist)}</div>
+      <div style="min-width:0;">
+        <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(t.title)}</div>
+        <div style="color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(t.artist)}</div>
       </div>
       <input type="number" class="year-input" value="${t.year}" min="1900" max="2100"
              data-track-id="${t.id}" onchange="updateYear('${t.id}', this.value)"
              title="Klik for at rette årstal">
-      <button onclick="removeTrack('${t.id}')">Fjern</button>
+      <button class="icon-btn" data-play-btn="${t.id}"
+              onclick="togglePlayTrack('${t.id}', '${escapeHtml(t.spotify_id)}')"
+              title="Afspil">▶</button>
+      <button class="icon-btn" onclick="openEditModal('${t.id}')" title="Rediger">✎</button>
+      <button class="remove-btn" onclick="removeTrack('${t.id}')">Fjern</button>
     </div>
   `).join('');
+}
+
+// ============================================================
+// PLAYBACK IN ADMIN — uses Spotify embedded player (iframe)
+// No Premium required, no OAuth, works cross-browser.
+// ============================================================
+let currentlyPlayingId = null;
+
+function togglePlayTrack(trackId, spotifyId) {
+  if (currentlyPlayingId === trackId) {
+    stopPreview();
+    return;
+  }
+  const t = tracks.find(x => x.id === trackId);
+  if (!t) return;
+  stopPreview(); // stop any previous
+  currentlyPlayingId = trackId;
+
+  // Mark the button as active
+  document.querySelectorAll('[data-play-btn]').forEach(b => b.classList.remove('playing'));
+  const btn = document.querySelector(`[data-play-btn="${trackId}"]`);
+  if (btn) { btn.classList.add('playing'); btn.textContent = '■'; }
+
+  // Build the sticky player bar with Spotify embed
+  let bar = document.getElementById('np-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'np-bar';
+    bar.className = 'now-playing-bar';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = `
+    <img src="${t.cover_url || ''}" onerror="this.style.visibility='hidden'">
+    <div class="np-info">
+      <div class="np-title">${escapeHtml(t.title)}</div>
+      <div class="np-artist">${escapeHtml(t.artist)} · ${t.year}</div>
+    </div>
+    <iframe id="np-iframe" style="display:block; width:0; height:0; border:0;"
+      src="https://open.spotify.com/embed/track/${encodeURIComponent(spotifyId)}?autoplay=1"
+      allow="autoplay; encrypted-media"></iframe>
+    <button class="np-close" onclick="stopPreview()" title="Stop">✕</button>
+  `;
+  // Replace compact iframe with a small visible Spotify widget
+  bar.querySelector('iframe').style.cssText = 'width:80px; height:80px; border:0; display:block; border-radius:8px; margin-right:4px;';
+}
+
+function stopPreview() {
+  const bar = document.getElementById('np-bar');
+  if (bar) bar.remove();
+  document.querySelectorAll('[data-play-btn]').forEach(b => {
+    b.classList.remove('playing');
+    b.textContent = '▶';
+  });
+  currentlyPlayingId = null;
+}
+
+// ============================================================
+// EDIT TRACK MODAL
+// ============================================================
+function openEditModal(trackId) {
+  const t = tracks.find(x => x.id === trackId);
+  if (!t) return;
+
+  let modal = document.getElementById('edit-overlay');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'edit-overlay';
+  modal.className = 'edit-overlay';
+  modal.innerHTML = `
+    <div class="edit-sheet">
+      <h2>Rediger track</h2>
+      ${t.cover_url ? `<img src="${t.cover_url}" class="edit-cover" onerror="this.style.display='none'">` : ''}
+      <label>Titel</label>
+      <input id="edit-title" type="text" value="${escapeHtml(t.title)}">
+      <label>Kunstner</label>
+      <input id="edit-artist" type="text" value="${escapeHtml(t.artist)}">
+      <label>Album</label>
+      <input id="edit-album" type="text" value="${escapeHtml(t.album || '')}">
+      <label>Årstal</label>
+      <input id="edit-year" type="number" min="1900" max="2100" value="${t.year}">
+      <div class="edit-actions">
+        <button class="secondary" onclick="closeEditModal()">Annullér</button>
+        <button onclick="saveTrackEdits('${t.id}')">Gem</button>
+      </div>
+    </div>
+  `;
+  // Close on backdrop click
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeEditModal(); });
+  document.body.appendChild(modal);
+  // Focus title
+  setTimeout(() => document.getElementById('edit-title')?.focus(), 50);
+}
+
+function closeEditModal() {
+  const m = document.getElementById('edit-overlay');
+  if (m) m.remove();
+}
+
+async function saveTrackEdits(trackId) {
+  const title = document.getElementById('edit-title').value.trim();
+  const artist = document.getElementById('edit-artist').value.trim();
+  const album = document.getElementById('edit-album').value.trim();
+  const year = parseInt(document.getElementById('edit-year').value, 10);
+
+  if (!title) return toast('Titel må ikke være tom', 'error');
+  if (!artist) return toast('Kunstner må ikke være tom', 'error');
+  if (!year || year < 1900 || year > 2100) return toast('Ugyldigt årstal', 'error');
+
+  const { error } = await supa.from('tracks')
+    .update({ title, artist, album: album || null, year })
+    .eq('id', trackId);
+  if (error) return toast(error.message, 'error');
+
+  // Update local copy
+  const t = tracks.find(x => x.id === trackId);
+  if (t) { t.title = title; t.artist = artist; t.album = album || null; t.year = year; }
+  closeEditModal();
+  renderTracks();
+  toast('✓ Gemt');
 }
 
 async function updateYear(trackId, newYear) {
