@@ -236,22 +236,61 @@
     100% { transform: scale(0.9); opacity: 0.5; }
   }
 
-  /* ============ READY BUTTON (between cards in manual mode) ============ */
-  #ready-next-section {
+  /* ============ BETWEEN-ROUNDS OVERLAY (manual mode) ============ */
+  .between-overlay {
+    position: fixed; inset: 0; z-index: 900;
+    background: radial-gradient(circle at center, #1a0033 0%, #000 80%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: white; gap: 40px;
+    padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
+  }
+  .between-overlay .vinyl {
+    position: relative; width: 240px; height: 240px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .between-overlay .ring {
+    position: absolute; border-radius: 50%; border-style: solid; border-width: 2px;
+    animation: vinylSpin 6s linear infinite;
+  }
+  .between-overlay .ring.r1 { width: 240px; height: 240px; border-color: #ff2d6f; animation-duration: 8s; }
+  .between-overlay .ring.r2 { width: 200px; height: 200px; border-color: #ffd400; animation-duration: 6s; animation-direction: reverse; }
+  .between-overlay .ring.r3 { width: 160px; height: 160px; border-color: #00c2ff; animation-duration: 5s; }
+  .between-overlay .ring.r4 { width: 120px; height: 120px; border-color: #ffffff; animation-duration: 4s; animation-direction: reverse; }
+  .between-overlay .ring.r5 { width: 80px; height: 80px; border-color: var(--accent-2); animation-duration: 3s; }
+  .between-overlay .vinyl-core {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--accent); z-index: 2;
+    box-shadow: 0 0 40px rgba(255,56,100,0.8);
+  }
+  @keyframes vinylSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  .between-overlay .between-label {
+    font-size: 13px; font-weight: 700; letter-spacing: 4px;
+    color: var(--muted); text-transform: uppercase;
     text-align: center;
   }
-  #ready-next-section .panel {
-    background: linear-gradient(135deg, #1a1a2e 0%, #2a1a3e 100%);
-    padding: 40px 20px;
+  .between-overlay .between-actions {
+    display: flex; flex-direction: column; gap: 10px;
+    width: 100%; max-width: 320px;
   }
-  #ready-next-section .big-ready-btn {
-    background: var(--accent-2); color: white;
-    padding: 28px 20px; font-size: 18px; font-weight: 800;
-    letter-spacing: 1px; border: none; border-radius: 14px;
-    width: 100%; cursor: pointer;
-    box-shadow: 0 4px 16px rgba(255,56,100,0.3);
+  .between-overlay .between-actions .primary-btn {
+    background: linear-gradient(135deg, var(--accent) 0%, #e02850 100%);
+    color: white; padding: 22px 20px; font-size: 17px; font-weight: 800;
+    letter-spacing: 0.5px; border: none; border-radius: 14px;
+    cursor: pointer; box-shadow: 0 6px 24px rgba(255,56,100,0.35);
+    width: 100%;
   }
-  #ready-next-section .big-ready-btn:active { transform: scale(0.98); }
+  .between-overlay .between-actions .primary-btn:active { transform: scale(0.98); }
+  .between-overlay .between-actions .danger-btn {
+    background: transparent; color: rgba(255,255,255,0.6);
+    padding: 14px 20px; font-size: 13px; font-weight: 600;
+    border: 1px solid rgba(255,255,255,0.2); border-radius: 12px;
+    cursor: pointer; width: 100%; box-shadow: none;
+  }
+  .between-overlay .between-actions .danger-btn:active { background: rgba(255,255,255,0.05); }
 
   /* ============ MANUAL MODE - hide player-related UI ============ */
   body.manual-mode .now-playing,
@@ -395,7 +434,7 @@
       <input id="win-points" type="number" value="15" min="5" max="50">
     </div>
     <label style="margin-top:14px;">Afspilningsenhed</label>
-    <select id="device-select">
+    <select id="device-select" onchange="onDeviceChange()">
       <option value="__SDK__">📱 Denne enhed (browser)</option>
     </select>
     <div style="display:flex; gap:8px; margin-top:6px;">
@@ -453,17 +492,10 @@
     <div class="panel">
       <h2 style="font-size:14px; margin-bottom:10px;">Scan kort</h2>
       <div class="scanner-wrap"><div id="scanner-region"></div></div>
-      <button class="secondary" id="scanner-toggle-btn" onclick="toggleScanner()">Stop kamera</button>
-    </div>
-  </div>
-
-  <!-- Ready-next (manual mode: between cards) -->
-  <div id="ready-next-section" class="hidden">
-    <div class="panel">
-      <div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:3px; margin-bottom:14px;">
-        Sangen er slut
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="secondary" id="scanner-toggle-btn" style="flex:1;" onclick="toggleScanner()">Stop kamera</button>
+        <button class="secondary hidden" id="torch-btn" style="flex:1;" onclick="toggleTorch()">💡 Lys</button>
       </div>
-      <button class="big-ready-btn" onclick="readyForNextCard()">📷 Klar — scan næste kort</button>
     </div>
   </div>
 
@@ -561,6 +593,23 @@
     <div class="rules-footer">
       <button onclick="hideRules()">Luk</button>
     </div>
+  </div>
+</div>
+
+<!-- ============ BETWEEN-ROUNDS OVERLAY (manual mode) ============ -->
+<div id="between-overlay" class="between-overlay hidden">
+  <div class="vinyl">
+    <div class="ring r1"></div>
+    <div class="ring r2"></div>
+    <div class="ring r3"></div>
+    <div class="ring r4"></div>
+    <div class="ring r5"></div>
+    <div class="vinyl-core"></div>
+  </div>
+  <div class="between-label">Klar til næste runde</div>
+  <div class="between-actions">
+    <button class="primary-btn" onclick="readyForNextCard()">📷 Scan næste kort</button>
+    <button class="danger-btn" onclick="endGame()">Afslut spil</button>
   </div>
 </div>
 
@@ -705,24 +754,51 @@ async function refreshDevices() {
 }
 
 async function createGame() {
-  // If user is using the browser/SDK device but hasn't activated it yet,
-  // this click IS a user gesture — kick off connect now (critical on iOS).
   const selectedValue = document.getElementById('device-select').value;
-  if ((selectedValue === '__SDK__' || selectedValue === '') && !webPlayerReady) {
-    toast('Aktiverer afspiller...');
-    await connectSDKFromUserGesture();
-    // On iOS, also call activateElement now while we still have the gesture context
-    if (webPlayer) { try { await webPlayer.activateElement(); } catch(e) {} }
-    // Wait briefly for 'ready' event
-    await new Promise(res => {
-      const start = Date.now();
-      const iv = setInterval(() => {
-        if (webPlayerReady || Date.now() - start > 4000) { clearInterval(iv); res(); }
-      }, 100);
-    });
+  const wantsSDK = (selectedValue === '__SDK__' || selectedValue === '');
+
+  if (wantsSDK) {
+    // Browser/SDK: this click IS a user gesture — kick off connect now (critical on iOS).
     if (!webPlayerReady) {
-      toast('Afspilleren kunne ikke aktiveres. Tjek Spotify Premium.', 'error');
-      return;
+      toast('Aktiverer afspiller...');
+      await connectSDKFromUserGesture();
+      // On iOS, also call activateElement now while we still have the gesture context
+      if (webPlayer) { try { await webPlayer.activateElement(); } catch(e) {} }
+      // Wait briefly for 'ready' event
+      await new Promise(res => {
+        const start = Date.now();
+        const iv = setInterval(() => {
+          if (webPlayerReady || Date.now() - start > 4000) { clearInterval(iv); res(); }
+        }, 100);
+      });
+      if (!webPlayerReady) {
+        toast('Afspilleren kunne ikke aktiveres. Tjek Spotify Premium.', 'error');
+        return;
+      }
+    }
+  } else {
+    // External device (SONOS/AirPlay): ensure the SDK isn't active and stealing focus
+    if (webPlayerReady) {
+      await disconnectSDKIfActive();
+      await new Promise(r => setTimeout(r, 300));
+    }
+    // Verify the chosen device still exists and do an initial transfer so playback
+    // is "parked" there when the first card is scanned.
+    const token = await getValidSpotifyToken();
+    if (token) {
+      const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (r.ok) {
+        const devices = (await r.json()).devices || [];
+        const device = devices.find(d => d.name === selectedValue);
+        if (device) {
+          await transferPlayback(token, device.id);
+          toast(`Afspiller på ${device.name}`);
+        } else {
+          toast(`"${selectedValue}" ikke fundet — åbn Spotify på enheden`, 'error');
+        }
+      }
     }
   }
 
@@ -732,8 +808,7 @@ async function createGame() {
   if (!playlist_id) return toast('Vælg en playliste', 'error');
 
   // Remember selected device by NAME (IDs change between sessions)
-  const selectedDeviceName = document.getElementById('device-select').value;
-  if (selectedDeviceName) localStorage.setItem('tl_device_name', selectedDeviceName);
+  if (selectedValue) localStorage.setItem('tl_device_name', selectedValue);
 
   const code = generateCode();
   const { data, error } = await supa.from('games').insert({
@@ -759,6 +834,18 @@ function onModeChange() {
   const mode = document.getElementById('mode-select').value;
   const winRow = document.getElementById('win-points-row');
   if (winRow) winRow.style.display = (mode === 'manual') ? 'none' : '';
+}
+
+// When user changes device in the dropdown: if they picked an external device
+// and the SDK is currently active, disconnect it so it can't steal focus later.
+async function onDeviceChange() {
+  const selectedValue = document.getElementById('device-select').value;
+  const wantsSDK = (selectedValue === '__SDK__' || selectedValue === '');
+  if (!wantsSDK && webPlayerReady) {
+    toast('Frigør browser-afspilleren...');
+    await disconnectSDKIfActive();
+  }
+  if (selectedValue) localStorage.setItem('tl_device_name', selectedValue);
 }
 
 function generateCode() {
@@ -869,12 +956,62 @@ function checkWinner() {
 }
 
 async function endGame() {
-  if (!confirm('Afslut spillet? Alle spillere ser slutstillingen.')) return;
+  if (!confirm('Vil du afslutte spillet?')) return;
+
+  // Hide all overlays immediately — user expects the game to be over now
+  document.getElementById('playing-overlay').classList.add('hidden');
+  document.getElementById('between-overlay').classList.add('hidden');
+  document.getElementById('countdown-overlay').classList.add('hidden');
+  stopPlaybackTimer();
+
+  // Manual mode: no scoreboard, just exit cleanly
+  if (currentGame && currentGame.mode === 'manual') {
+    await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
+    await stopTrack();
+    await releaseWakeLock();
+    toast('Spillet er afsluttet');
+    setTimeout(() => location.reload(), 800);
+    return;
+  }
+
+  // Scored modes: mark finished, stop audio, show final standing briefly, then reload
   await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
   await stopTrack();
   await releaseWakeLock();
+  showFinalStanding();
+}
+
+function showFinalStanding() {
+  // Hide game sections and show a simple final-standing panel
+  document.getElementById('scan-section').classList.add('hidden');
+  document.getElementById('scoring-section').classList.add('hidden');
+
+  const sorted = [...players].sort((a, b) => b.score - a.score);
+  const listEl = document.getElementById('game-player-list');
+  if (listEl) {
+    listEl.innerHTML = sorted.length === 0
+      ? '<div style="color:var(--muted); text-align:center; padding:14px; font-size:13px;">Ingen spillere</div>'
+      : sorted.map((p, i) => {
+          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+          return `<div class="player-row" style="${i === 0 ? 'border:1px solid var(--accent-2);' : ''}">
+            <span class="player-name">${medal} ${escapeHtml(p.name)}</span>
+            <span class="player-score">${p.score}</span>
+          </div>`;
+        }).join('');
+  }
+
+  // Replace the bottom action bar with a "Nyt spil" button
+  const nowPlaying = document.querySelector('.now-playing');
+  if (nowPlaying) {
+    nowPlaying.innerHTML = '<div class="label">Slutstilling</div><div class="turn-name" style="color:var(--accent-2);">🏆</div>';
+  }
+  const hdr = document.querySelector('#game-screen [data-manual-hide] h2');
+  if (hdr) hdr.textContent = 'Slutstilling';
+
   toast('Spillet er afsluttet');
-  setTimeout(() => location.reload(), 1500);
+  setTimeout(() => {
+    if (confirm('Vil du starte et nyt spil?')) location.reload();
+  }, 1200);
 }
 
 // ============================================================
@@ -904,15 +1041,75 @@ function startScanner() {
 
   if (scannerActive) return; // Already running
 
-  scanner = new Html5Qrcode('scanner-region');
+  scanner = new Html5Qrcode('scanner-region', {
+    verbose: false,
+    // Only decode QR codes (faster than trying all formats).
+    // Value 0 = QR_CODE in the Html5QrcodeSupportedFormats enum.
+    formatsToSupport: (typeof Html5QrcodeSupportedFormats !== 'undefined')
+      ? [Html5QrcodeSupportedFormats.QR_CODE]
+      : [0],
+  });
+
+  // Adaptive qrbox: ~70% of the shorter viewport side, capped 180-320
+  const qrboxFn = (vw, vh) => {
+    const size = Math.max(180, Math.min(320, Math.floor(Math.min(vw, vh) * 0.7)));
+    return { width: size, height: size };
+  };
+
+  // Ask for a high-resolution rear camera — crucial for scanning small QR codes
+  const config = {
+    fps: 20,                              // Higher than default 10 → more scan attempts/sec
+    qrbox: qrboxFn,
+    aspectRatio: 1.0,
+    rememberLastUsedCamera: true,
+    disableFlip: false,                   // Allow mirrored/flipped QR codes
+    experimentalFeatures: {
+      useBarCodeDetectorIfSupported: true // Native browser decoder = much faster/more robust
+    },
+    videoConstraints: {
+      facingMode: { ideal: 'environment' },
+      width:  { ideal: 1920, min: 640 },
+      height: { ideal: 1080, min: 480 },
+      focusMode: 'continuous',
+    }
+  };
+
   scanner.start(
     { facingMode: 'environment' },
-    { fps: 10, qrbox: { width: 220, height: 220 }, rememberLastUsedCamera: true },
+    config,
     (decoded) => { if (scanReady) onScanned(decoded); },
-    () => {}
+    () => {} // errors are per-frame; ignore to avoid toast spam
   ).then(() => {
     scannerActive = true;
+    // Try to enable continuous autofocus + torch UI if supported
+    setTimeout(tryEnableTorchButton, 500);
   }).catch(err => toast('Kamera-fejl: ' + err, 'error'));
+}
+
+// Detect if the current camera track supports torch; if so, reveal the torch button.
+async function tryEnableTorchButton() {
+  try {
+    if (!scanner || !scanner.getRunningTrackCapabilities) return;
+    const caps = scanner.getRunningTrackCapabilities();
+    const torchBtn = document.getElementById('torch-btn');
+    if (caps && caps.torch && torchBtn) {
+      torchBtn.classList.remove('hidden');
+    }
+  } catch (e) { /* not supported — no torch button */ }
+}
+
+let torchOn = false;
+async function toggleTorch() {
+  if (!scanner) return;
+  try {
+    torchOn = !torchOn;
+    await scanner.applyVideoConstraints({ advanced: [{ torch: torchOn }] });
+    const btn = document.getElementById('torch-btn');
+    if (btn) btn.textContent = torchOn ? '💡 Lys TIL' : '💡 Lys';
+  } catch (e) {
+    toast('Kunne ikke tænde lyset', 'error');
+    torchOn = false;
+  }
 }
 
 async function stopScanner() {
@@ -964,7 +1161,7 @@ function showCountdown(seconds) {
     // Hide any other screens while counting down
     document.getElementById('scan-section').classList.add('hidden');
     document.getElementById('scoring-section').classList.add('hidden');
-    document.getElementById('ready-next-section').classList.add('hidden');
+    document.getElementById('between-overlay').classList.add('hidden');
     overlay.classList.remove('hidden');
 
     let remaining = seconds;
@@ -990,18 +1187,18 @@ function showCountdown(seconds) {
 }
 
 // ============================================================
-// MANUAL MODE: "Klar" button between cards
+// MANUAL MODE: Between-rounds overlay (fullscreen vinyl rings)
 // ============================================================
 function showReadyForNext() {
   document.getElementById('scan-section').classList.add('hidden');
   document.getElementById('scoring-section').classList.add('hidden');
   document.getElementById('playing-overlay').classList.add('hidden');
-  document.getElementById('ready-next-section').classList.remove('hidden');
-  scanReady = false; // Don't accept scans until user taps Klar
+  document.getElementById('between-overlay').classList.remove('hidden');
+  scanReady = false; // Don't accept scans until user taps "Scan næste kort"
 }
 
 function readyForNextCard() {
-  document.getElementById('ready-next-section').classList.add('hidden');
+  document.getElementById('between-overlay').classList.add('hidden');
   startScanner();
 }
 
@@ -1209,11 +1406,45 @@ async function resolveTargetDevice(token) {
   return { id: device.id, isSDK: false, name: device.name };
 }
 
+// CRITICAL: Disconnect the browser SDK so it stops stealing playback focus.
+// Must be called BEFORE playing on an external device (SONOS/AirPlay/Bluetooth
+// via Connect). Without this, Spotify will hijack playback back to the browser
+// within seconds because both are on the same account.
+async function disconnectSDKIfActive() {
+  if (!webPlayer) return;
+  try {
+    await webPlayer.pause().catch(() => {});
+    await webPlayer.disconnect();
+  } catch (e) { console.warn('SDK disconnect failed:', e); }
+  webPlayer = null;
+  webPlayerDeviceId = null;
+  webPlayerReady = false;
+  sdkConnectAttempted = false;
+  console.log('SDK disconnected to free playback for external device');
+}
+
+// Explicit transfer to a device — required for SONOS/AirPlay when SDK has been
+// the active device recently. Separates the "move focus" step from "play".
+async function transferPlayback(token, deviceId) {
+  const r = await fetch('https://api.spotify.com/v1/me/player', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_ids: [deviceId], play: false }),
+  });
+  // 204 = success; 202 = accepted but still being applied
+  return r.ok || r.status === 202 || r.status === 204;
+}
+
 // Atomic transfer + play — this is the ONLY reliable way to target a device.
 // Never play without device_id (that's what causes Bluetooth hijacking).
-async function transferAndPlay(token, deviceId, spotifyId) {
-  // For non-SDK devices, transfer first (moves any current playback to this device)
-  // Then play. For SDK devices, play directly is fine.
+async function transferAndPlay(token, deviceId, spotifyId, isSDK = false) {
+  // For external devices: do an explicit transfer first, then brief wait, then play.
+  // This prevents the SDK (if still loaded) from snatching back playback.
+  if (!isSDK) {
+    await transferPlayback(token, deviceId);
+    // SONOS in particular needs ~500ms to accept the transfer before play commands land
+    await new Promise(r => setTimeout(r, 500));
+  }
   const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1225,17 +1456,28 @@ async function transferAndPlay(token, deviceId, spotifyId) {
 }
 
 async function testDevice() {
-  // This click is a USER GESTURE — perfect moment to init the SDK on iOS.
-  if (!webPlayerReady) {
-    toast('Aktiverer afspiller...');
-    await connectSDKFromUserGesture();
-    // Give SDK a moment to emit 'ready'
-    await new Promise(res => {
-      const start = Date.now();
-      const iv = setInterval(() => {
-        if (webPlayerReady || Date.now() - start > 5000) { clearInterval(iv); res(); }
-      }, 100);
-    });
+  const selectedValue = document.getElementById('device-select')?.value || '__SDK__';
+  const wantsSDK = (selectedValue === '__SDK__' || selectedValue === '');
+
+  if (wantsSDK) {
+    // Browser/SDK path — init if needed
+    if (!webPlayerReady) {
+      toast('Aktiverer afspiller...');
+      await connectSDKFromUserGesture();
+      await new Promise(res => {
+        const start = Date.now();
+        const iv = setInterval(() => {
+          if (webPlayerReady || Date.now() - start > 5000) { clearInterval(iv); res(); }
+        }, 100);
+      });
+    }
+  } else {
+    // External device path — disconnect SDK if it's active so it doesn't steal focus
+    if (webPlayerReady) {
+      toast('Frigør browser-afspilleren...');
+      await disconnectSDKIfActive();
+      await new Promise(r => setTimeout(r, 400));
+    }
   }
 
   const token = await getValidSpotifyToken();
@@ -1245,18 +1487,18 @@ async function testDevice() {
   if (!target) return toast('Enhed ikke klar — tryk Opdatér', 'error');
 
   // Save selection for next session
-  const name = document.getElementById('device-select').value;
-  if (name) localStorage.setItem('tl_device_name', name);
+  if (selectedValue) localStorage.setItem('tl_device_name', selectedValue);
 
   // On iOS with SDK, activateElement must be called inside a user gesture before play.
   if (target.isSDK && webPlayer) {
     try { await webPlayer.activateElement(); } catch(e) { console.warn('activateElement:', e); }
   }
 
-  const ok = await transferAndPlay(token, target.id, '4uLU6hMCjMI75M1A2tKUQC'); // Rick Astley
+  const ok = await transferAndPlay(token, target.id, '4uLU6hMCjMI75M1A2tKUQC', target.isSDK);
   if (ok) {
     activeDeviceId = target.id;
-    toast('🎵 Hører du musikken? — stopper om 3s');
+    const label = target.isSDK ? 'denne enhed' : target.name;
+    toast(`🎵 Hører du musikken fra ${label}? — stopper om 3s`);
     setTimeout(async () => {
       if (target.isSDK && webPlayer) { await webPlayer.pause().catch(() => {}); return; }
       await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${target.id}`, {
@@ -1264,7 +1506,7 @@ async function testDevice() {
       }).catch(() => {});
     }, 3000);
   } else {
-    toast('Test fejlede — tjek Spotify-login', 'error');
+    toast('Test fejlede — tjek Spotify-login og at enheden er tændt', 'error');
   }
 }
 
@@ -1275,18 +1517,22 @@ async function playTrack(spotifyId) {
   const selectedValue = document.getElementById('device-select')?.value || '__SDK__';
   const wantsSDK = (selectedValue === '__SDK__' || selectedValue === '');
 
-  // If user wants the browser SDK but it isn't ready, try once more.
-  // Don't silently fall back to a random Bluetooth device — that's the exact bug.
+  // Mode transitions:
+  // - User wants SDK but SDK isn't ready → try to connect
+  // - User wants external BUT SDK is still ready → disconnect SDK first
   if (wantsSDK && !webPlayerReady) {
     await connectSDKFromUserGesture();
     if (webPlayer) { try { await webPlayer.activateElement(); } catch(e) {} }
-    // Give the SDK up to 3s to emit 'ready'
     await new Promise(res => {
       const start = Date.now();
       const iv = setInterval(() => {
         if (webPlayerReady || Date.now() - start > 3000) { clearInterval(iv); res(); }
       }, 100);
     });
+  } else if (!wantsSDK && webPlayerReady) {
+    // User picked SONOS/AirPlay — free the browser SDK so it stops stealing focus
+    await disconnectSDKIfActive();
+    await new Promise(r => setTimeout(r, 400));
   }
 
   const target = await resolveTargetDevice(token);
@@ -1299,20 +1545,19 @@ async function playTrack(spotifyId) {
     return;
   }
 
-  // On iOS with SDK, activateElement must be called before play.
-  // This is safe to call repeatedly; it's a no-op after first gesture.
+  // On iOS with SDK, activateElement must be called before play (safe to repeat).
   if (target.isSDK && webPlayer) {
     try { await webPlayer.activateElement(); } catch(e) {}
   }
 
-  const ok = await transferAndPlay(token, target.id, spotifyId);
+  const ok = await transferAndPlay(token, target.id, spotifyId, target.isSDK);
   if (ok) {
     activeDeviceId = target.id;
     console.log(`Playing ${spotifyId} on ${target.name || 'browser SDK'} (${target.id})`);
     return;
   }
 
-  // If a non-SDK named device failed, its id may have changed. Refresh + retry by name.
+  // If a non-SDK named device failed, its id may have changed. Refresh + retry.
   if (!target.isSDK && target.name) {
     const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
       headers: { Authorization: `Bearer ${token}` }
@@ -1322,7 +1567,7 @@ async function playTrack(spotifyId) {
       const device = devices.find(d => d.name === target.name);
       if (device && device.id !== target.id) {
         console.log('Device id changed, retrying');
-        if (await transferAndPlay(token, device.id, spotifyId)) {
+        if (await transferAndPlay(token, device.id, spotifyId, false)) {
           activeDeviceId = device.id;
           return;
         }
