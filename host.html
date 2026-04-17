@@ -172,6 +172,56 @@
   .scoring-buttons button { padding: 16px 12px; font-size: 14px; }
 
   .bottom-actions { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+  /* ============ COUNTDOWN OVERLAY (3...2...1 before song plays) ============ */
+  .countdown-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: radial-gradient(circle at center, #1a0033 0%, #000 80%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: white;
+  }
+  .countdown-label {
+    font-size: 14px; font-weight: 700; letter-spacing: 5px;
+    color: var(--muted); margin-bottom: 32px; text-transform: uppercase;
+  }
+  .countdown-number {
+    font-size: 200px; font-weight: 900;
+    color: var(--accent-2); font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 60px rgba(255,56,100,0.6);
+    line-height: 1;
+  }
+  .countdown-number.pulse {
+    animation: countdownPulse 1s ease-out forwards;
+  }
+  @keyframes countdownPulse {
+    0%   { transform: scale(0.3); opacity: 0; }
+    25%  { transform: scale(1.25); opacity: 1; }
+    70%  { transform: scale(1); opacity: 1; }
+    100% { transform: scale(0.9); opacity: 0.5; }
+  }
+
+  /* ============ READY BUTTON (between cards in manual mode) ============ */
+  #ready-next-section {
+    text-align: center;
+  }
+  #ready-next-section .panel {
+    background: linear-gradient(135deg, #1a1a2e 0%, #2a1a3e 100%);
+    padding: 40px 20px;
+  }
+  #ready-next-section .big-ready-btn {
+    background: var(--accent-2); color: white;
+    padding: 28px 20px; font-size: 18px; font-weight: 800;
+    letter-spacing: 1px; border: none; border-radius: 14px;
+    width: 100%; cursor: pointer;
+    box-shadow: 0 4px 16px rgba(255,56,100,0.3);
+  }
+  #ready-next-section .big-ready-btn:active { transform: scale(0.98); }
+
+  /* ============ MANUAL MODE - hide player-related UI ============ */
+  body.manual-mode .now-playing,
+  body.manual-mode [data-manual-hide="true"] {
+    display: none !important;
+  }
 </style>
 </head>
 <body>
@@ -202,14 +252,17 @@
     <label>Playliste</label>
     <select id="playlist-select"></select>
     <label style="margin-top:14px;">Spiltilstand</label>
-    <select id="mode-select">
+    <select id="mode-select" onchange="onModeChange()">
+      <option value="manual">Klassisk Hitster – manuel pointtælling (ingen login)</option>
       <option value="classic">Classic – kun årstal (1 point)</option>
       <option value="advanced">Advanced – årstal + artist (op til 2 point)</option>
       <option value="expert">Expert – årstal + artist + titel (op til 3 point)</option>
       <option value="mixed">Mixed – spilleren satser 1, 2 eller 3 point</option>
     </select>
-    <label style="margin-top:14px;">Vinderpoint</label>
-    <input id="win-points" type="number" value="15" min="5" max="50">
+    <div id="win-points-row">
+      <label style="margin-top:14px;">Vinderpoint</label>
+      <input id="win-points" type="number" value="15" min="5" max="50">
+    </div>
     <label style="margin-top:14px;">Afspilningsenhed</label>
     <select id="device-select">
       <option value="__SDK__">📱 Denne enhed (browser)</option>
@@ -270,6 +323,16 @@
     </div>
   </div>
 
+  <!-- Ready-next (manual mode: between cards) -->
+  <div id="ready-next-section" class="hidden">
+    <div class="panel">
+      <div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:3px; margin-bottom:14px;">
+        Sangen er slut
+      </div>
+      <button class="big-ready-btn" onclick="readyForNextCard()">📷 Klar — scan næste kort</button>
+    </div>
+  </div>
+
   <!-- Scoring (no reveal — the physical card is the reveal) -->
   <div id="scoring-section" class="hidden">
     <div class="panel" style="text-align:center;">
@@ -278,13 +341,22 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" data-manual-hide="true">
     <h2 style="font-size:14px; margin-bottom:10px;">Stilling</h2>
     <div class="player-list" id="game-player-list"></div>
-    <div class="bottom-actions">
+  </div>
+
+  <div class="panel">
+    <div class="bottom-actions" style="margin:0; padding:0; border:none;">
       <button class="danger" onclick="endGame()">Afslut spil</button>
     </div>
   </div>
+</div>
+
+<!-- ============ COUNTDOWN OVERLAY (3...2...1 before song) ============ -->
+<div id="countdown-overlay" class="countdown-overlay hidden">
+  <div class="countdown-label">Gør dig klar</div>
+  <div class="countdown-number" id="countdown-number">3</div>
 </div>
 
 <!-- ============ FULLSCREEN PLAYING OVERLAY ============ -->
@@ -370,6 +442,7 @@ async function logout() { await supa.auth.signOut(); location.reload(); }
 // ============================================================
 async function showCreate() {
   show('create-screen');
+  document.body.classList.remove('manual-mode'); // Reset on return to create screen
   const { data } = await supa.from('playlists').select('*').order('name');
   const sel = document.getElementById('playlist-select');
   sel.innerHTML = (data || []).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
@@ -379,6 +452,7 @@ async function showCreate() {
   // Init Web Playback SDK (works on desktop, no-op on mobile)
   await initWebPlaybackSDK();
   await refreshDevices();
+  onModeChange(); // Sync win-points field visibility with default mode
 }
 
 async function refreshDevices() {
@@ -443,7 +517,7 @@ async function createGame() {
 
   const playlist_id = document.getElementById('playlist-select').value;
   const mode = document.getElementById('mode-select').value;
-  const win_points = parseInt(document.getElementById('win-points').value, 10);
+  const win_points = parseInt(document.getElementById('win-points').value, 10) || 999;
   if (!playlist_id) return toast('Vælg en playliste', 'error');
 
   // Remember selected device by NAME (IDs change between sessions)
@@ -458,7 +532,22 @@ async function createGame() {
 
   currentGame = data;
   await requestWakeLock();
-  await showLobby();
+
+  // Manual mode: skip lobby (no players need to join) and go directly to the game
+  if (mode === 'manual') {
+    document.body.classList.add('manual-mode');
+    await startGame();
+  } else {
+    document.body.classList.remove('manual-mode');
+    await showLobby();
+  }
+}
+
+// Hide the "Vinderpoint" field when manual mode is selected (since nobody's counting)
+function onModeChange() {
+  const mode = document.getElementById('mode-select').value;
+  const winRow = document.getElementById('win-points-row');
+  if (winRow) winRow.style.display = (mode === 'manual') ? 'none' : '';
 }
 
 function generateCode() {
@@ -639,8 +728,61 @@ async function onScanned(decoded) {
     currentTrack = card.track;
   }
 
+  // 3-second countdown before the song plays — gives players time to get ready
+  await showCountdown(3);
+
   await playTrack(currentTrack.spotify_id);
   showPlayingOverlay();
+}
+
+// ============================================================
+// COUNTDOWN (3...2...1 before the song starts)
+// ============================================================
+function showCountdown(seconds) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('countdown-overlay');
+    const numEl = document.getElementById('countdown-number');
+    // Hide any other screens while counting down
+    document.getElementById('scan-section').classList.add('hidden');
+    document.getElementById('ready-next-section').classList.add('hidden');
+    overlay.classList.remove('hidden');
+
+    let remaining = seconds;
+    const renderNumber = (n) => {
+      numEl.textContent = n;
+      numEl.classList.remove('pulse');
+      void numEl.offsetWidth; // restart animation
+      numEl.classList.add('pulse');
+    };
+    renderNumber(remaining);
+
+    const iv = setInterval(() => {
+      remaining--;
+      if (remaining <= 0) {
+        clearInterval(iv);
+        overlay.classList.add('hidden');
+        resolve();
+      } else {
+        renderNumber(remaining);
+      }
+    }, 1000);
+  });
+}
+
+// ============================================================
+// MANUAL MODE: "Klar" button between cards
+// ============================================================
+function showReadyForNext() {
+  document.getElementById('scan-section').classList.add('hidden');
+  document.getElementById('scoring-section').classList.add('hidden');
+  document.getElementById('playing-overlay').classList.add('hidden');
+  document.getElementById('ready-next-section').classList.remove('hidden');
+  scanReady = false; // Don't accept scans until user taps Klar
+}
+
+function readyForNextCard() {
+  document.getElementById('ready-next-section').classList.add('hidden');
+  startScanner();
 }
 
 // ============================================================
@@ -701,6 +843,13 @@ async function endSong() {
   stopPlaybackTimer();
   await stopTrack();
   document.getElementById('playing-overlay').classList.add('hidden');
+
+  // Manual mode: skip scoring entirely, show "Klar" button for next card
+  if (currentGame && currentGame.mode === 'manual') {
+    showReadyForNext();
+    return;
+  }
+
   showScoring();
 }
 
