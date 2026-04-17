@@ -537,16 +537,18 @@ async function endGame() {
 }
 
 // ============================================================
-// SCANNER
+// SCANNER — stays running, only processes scans when ready
 // ============================================================
+let scannerActive = false;
+let scanReady = true;
+
 async function toggleScanner() {
   const btn = document.getElementById('scanner-toggle-btn');
-  if (scanner) {
+  if (scannerActive) {
     await stopScanner();
     btn.textContent = 'Start kamera';
   } else {
     startScanner();
-    btn.textContent = 'Stop kamera';
   }
 }
 
@@ -554,34 +556,41 @@ function startScanner() {
   document.getElementById('scan-section').classList.remove('hidden');
   document.getElementById('scoring-section').classList.add('hidden');
   document.getElementById('playing-overlay').classList.add('hidden');
+  scanReady = true;
+
   const btn = document.getElementById('scanner-toggle-btn');
   if (btn) btn.textContent = 'Stop kamera';
-  if (scanner) return;
+
+  if (scannerActive) return; // Already running
+
   scanner = new Html5Qrcode('scanner-region');
   scanner.start(
     { facingMode: 'environment' },
-    { fps: 10, qrbox: { width: 220, height: 220 } },
-    onScanned,
+    { fps: 10, qrbox: { width: 220, height: 220 }, rememberLastUsedCamera: true },
+    (decoded) => { if (scanReady) onScanned(decoded); },
     () => {}
-  ).catch(err => toast('Kamera-fejl: ' + err, 'error'));
+  ).then(() => {
+    scannerActive = true;
+  }).catch(err => toast('Kamera-fejl: ' + err, 'error'));
 }
 
 async function stopScanner() {
-  if (!scanner) return;
+  if (!scanner || !scannerActive) return;
   try { await scanner.stop(); scanner.clear(); } catch(e) {}
   scanner = null;
+  scannerActive = false;
 }
 
 async function onScanned(decoded) {
+  scanReady = false; // Ignore further scans until next round
+
   const m = decoded.match(/\/c\/([a-z0-9]+)/i) || decoded.match(/track\/([a-zA-Z0-9]+)/);
   let cardId = m ? m[1] : decoded;
-
-  await stopScanner();
 
   const { data: card } = await supa.from('cards').select('*, track:tracks(*)').eq('id', cardId).maybeSingle();
   if (!card) {
     const { data: track } = await supa.from('tracks').select('*').eq('spotify_id', cardId).maybeSingle();
-    if (!track) { toast('Kort ikke fundet', 'error'); startScanner(); return; }
+    if (!track) { toast('Kort ikke fundet', 'error'); scanReady = true; return; }
     currentCard = { id: 'legacy-' + cardId, track };
     currentTrack = track;
   } else {
@@ -779,29 +788,29 @@ async function playTrack(spotifyId) {
     }
   }
 
-  // === MOBILE / FALLBACK: Direct play with device_id (no transfer) ===
-  const delays = [0, 500, 1500];
-  for (let attempt = 0; attempt < delays.length; attempt++) {
-    if (delays[attempt] > 0) await new Promise(r => setTimeout(r, delays[attempt]));
-
-    const deviceId = await findDeviceId(token);
-    if (!deviceId) {
-      if (attempt === delays.length - 1) {
-        toast('Enhed ikke fundet. Vælg den rigtige enhed og tryk "Test".', 'error');
-        return;
-      }
-      continue;
-    }
-
-    if (await tryPlay(token, deviceId, spotifyId)) {
-      activeDeviceId = deviceId;
-      console.log(`Playback started on ${deviceId} (attempt ${attempt + 1})`);
+  // === Try cached device first (fast, no API call) ===
+  if (activeDeviceId) {
+    if (await tryPlay(token, activeDeviceId, spotifyId)) {
+      console.log('Played on cached device:', activeDeviceId);
       return;
     }
-    console.warn(`Play attempt ${attempt + 1} failed`);
+    console.warn('Cached device failed, doing fresh lookup');
   }
 
-  toast('Afspilning fejlede. Prøv at åbne Spotify og afspil noget kort, og test enheden igen.', 'error');
+  // === Fresh lookup only if cached device failed ===
+  const deviceId = await findDeviceId(token);
+  if (!deviceId) {
+    toast('Enhed ikke fundet. Åbn Spotify, afspil noget kort, og test enheden igen.', 'error');
+    return;
+  }
+
+  if (await tryPlay(token, deviceId, spotifyId)) {
+    activeDeviceId = deviceId;
+    console.log('Played on fresh device:', deviceId);
+    return;
+  }
+
+  toast('Afspilning fejlede. Åbn Spotify og prøv igen.', 'error');
 }
 
 async function pauseTrack() {
