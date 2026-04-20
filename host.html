@@ -12,7 +12,9 @@
 <meta name="apple-mobile-web-app-title" content="Musika">
 <meta name="theme-color" content="#0a0a0f">
 <link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='96' fill='%230a0a0f'/%3E%3Ccircle cx='256' cy='256' r='200' fill='none' stroke='%23ff3864' stroke-width='16'/%3E%3Ccircle cx='256' cy='256' r='150' fill='none' stroke='%2300d4ff' stroke-width='16'/%3E%3Ccircle cx='256' cy='256' r='100' fill='none' stroke='%23ff3864' stroke-width='16'/%3E%3Ccircle cx='256' cy='256' r='40' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -207,6 +209,61 @@
   .scoring-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .scoring-buttons button { padding: 16px 12px; font-size: 14px; }
 
+  /* ============ LOCAL PLAYERS (create screen chips) ============ */
+  .local-players {
+    display: flex; flex-wrap: wrap; gap: 6px; min-height: 20px;
+    margin-top: 4px;
+  }
+  .player-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--panel-light); border: 1px solid var(--border);
+    padding: 6px 8px 6px 12px; border-radius: 20px; font-size: 13px;
+  }
+  .player-chip .chip-remove {
+    background: transparent; border: none; color: var(--muted);
+    width: 22px; height: 22px; padding: 0; border-radius: 50%;
+    font-size: 13px; cursor: pointer; box-shadow: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .player-chip .chip-remove:hover { background: var(--accent); color: white; }
+
+  /* ============ SCORE CONTROLS IN STANDINGS ============ */
+  .player-row {
+    background: var(--panel-light); padding: 10px 14px;
+    border-radius: 8px; display: flex; justify-content: space-between; align-items: center;
+    gap: 10px;
+  }
+  .player-name { font-weight: 600; flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .player-score { color: var(--accent-2); font-weight: 700; font-variant-numeric: tabular-nums;
+    min-width: 28px; text-align: center; font-size: 16px; }
+  .player-score-controls { display: flex; align-items: center; gap: 4px; }
+  .score-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    width: 28px; height: 28px; padding: 0; border-radius: 50%;
+    font-size: 16px; font-weight: 700; cursor: pointer; box-shadow: none;
+    display: flex; align-items: center; justify-content: center; line-height: 1;
+  }
+  .score-btn:hover { color: var(--accent-2); border-color: var(--accent-2); }
+  .score-btn:active { background: var(--accent-2); color: black; }
+
+  /* ============ SCORING PANEL: "Who got the card?" ============ */
+  .scoring-player-list {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .player-score-btn {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--panel-light); border: 1px solid var(--border);
+    padding: 14px 18px; border-radius: 10px;
+    font-size: 15px; font-weight: 600; color: var(--text);
+    cursor: pointer; width: 100%; box-shadow: none;
+  }
+  .player-score-btn:hover { border-color: var(--accent-2); background: rgba(0,212,255,0.08); }
+  .player-score-btn:active { transform: scale(0.98); }
+  .player-score-btn .pname { flex: 1; text-align: left; }
+  .player-score-btn .pcurrent { color: var(--muted); font-size: 13px; font-weight: 500;
+    background: var(--panel); padding: 4px 10px; border-radius: 12px; }
+
   .bottom-actions { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
 
   /* ============ COUNTDOWN OVERLAY (3...2...1 before song plays) ============ */
@@ -291,12 +348,6 @@
     cursor: pointer; width: 100%; box-shadow: none;
   }
   .between-overlay .between-actions .danger-btn:active { background: rgba(255,255,255,0.05); }
-
-  /* ============ MANUAL MODE - hide player-related UI ============ */
-  body.manual-mode .now-playing,
-  body.manual-mode [data-manual-hide="true"] {
-    display: none !important;
-  }
 
   /* ============ RULES MODAL ============ */
   .rules-overlay {
@@ -418,21 +469,32 @@
   <h1>🎵 <span>Musika</span></h1>
   <p class="subtitle">Opret nyt spil</p>
 
+  <!-- Resume banner — only shown when a saved game is detected -->
+  <div id="resume-banner" class="panel hidden" style="background:linear-gradient(135deg,#2a1a3e,#1a2a3e); border-color:var(--accent-2);">
+    <div style="font-size:11px; color:var(--accent-2); text-transform:uppercase; letter-spacing:2px; margin-bottom:6px;">
+      Tidligere spil fundet
+    </div>
+    <div id="resume-desc" style="font-size:13px; margin-bottom:12px; color:var(--text);"></div>
+    <div style="display:flex; gap:8px;">
+      <button onclick="resumeGame()" style="flex:2;">▶ Fortsæt spil</button>
+      <button class="secondary" onclick="discardSavedGame()" style="flex:1;">Slet</button>
+    </div>
+  </div>
+
   <div class="panel">
     <label>Playliste</label>
     <select id="playlist-select"></select>
-    <label style="margin-top:14px;">Spiltilstand</label>
-    <select id="mode-select" onchange="onModeChange()">
-      <option value="manual">Klassisk Hitster – manuel pointtælling (ingen login)</option>
-      <option value="classic">Classic – kun årstal (1 point)</option>
-      <option value="advanced">Advanced – årstal + artist (op til 2 point)</option>
-      <option value="expert">Expert – årstal + artist + titel (op til 3 point)</option>
-      <option value="mixed">Mixed – spilleren satser 1, 2 eller 3 point</option>
-    </select>
-    <div id="win-points-row">
-      <label style="margin-top:14px;">Vinderpoint</label>
-      <input id="win-points" type="number" value="15" min="5" max="50">
+
+    <label style="margin-top:14px;">Spillere (valgfrit)</label>
+    <div id="players-list" class="local-players"></div>
+    <div style="display:flex; gap:8px; margin-top:8px;">
+      <input id="new-player-name" type="text" placeholder="Navn" onkeydown="if(event.key==='Enter')addLocalPlayer()" style="flex:1;">
+      <button class="secondary" onclick="addLocalPlayer()" style="flex:0 0 auto; width:auto; padding:12px 18px;">+ Tilføj</button>
     </div>
+    <p style="font-size:11px; color:var(--muted); margin-top:6px;">
+      Tilføj spillernavne for at få scoreboard, eller lad stå tomt for at holde score manuelt.
+    </p>
+
     <label style="margin-top:14px;">Afspilningsenhed</label>
     <select id="device-select" onchange="onDeviceChange()">
       <option value="__SDK__">📱 Denne enhed (browser)</option>
@@ -446,7 +508,7 @@
       Musikken afspilles direkte i browseren og går til telefonens højttaler (eller din Bluetooth/AirPods hvis tilsluttet i iOS).
       Vælg SONOS/andet for at streame dertil i stedet.
     </p>
-    <button style="margin-top:18px;" onclick="createGame()">Opret spil</button>
+    <button style="margin-top:18px;" onclick="createGame()">Start spil</button>
     <div style="display:flex; gap:8px; margin-top:8px;">
       <button class="secondary" style="flex:1;" onclick="showRules()">❓ Regler</button>
       <button class="secondary" style="flex:1;" onclick="logout()">Log ud</button>
@@ -454,38 +516,9 @@
   </div>
 </div>
 
-<!-- ============ LOBBY ============ -->
-<div id="lobby-screen" class="hidden">
-  <h1>🎵 <span>Musika</span></h1>
-  <p class="subtitle">Spillere scanner QR'en eller går til <strong id="join-url-display"></strong></p>
-
-  <div class="panel">
-    <div style="text-align:center; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:2px;">Spil-kode</div>
-    <div class="game-code" id="game-code"></div>
-    <div class="qr-display"><div id="join-qr"></div></div>
-  </div>
-
-  <div class="panel">
-    <h2 style="font-size:16px; margin-bottom:6px;">Spillere (<span id="player-count">0</span>)</h2>
-    <div class="player-list" id="player-list"></div>
-    <button style="margin-top:14px;" onclick="startGame()">Start spil</button>
-    <p style="font-size:11px; color:var(--muted); margin-top:8px; text-align:center;">
-      Du kan starte når som helst – også uden spillere (til test)
-    </p>
-    <div class="bottom-actions">
-      <button class="danger" onclick="cancelGame()">Luk spil</button>
-    </div>
-  </div>
-</div>
-
 <!-- ============ ACTIVE GAME ============ -->
 <div id="game-screen" class="hidden">
   <h1>🎵 <span>Musika</span></h1>
-
-  <div class="now-playing">
-    <div class="label">Det er nu</div>
-    <div class="turn-name" id="active-player-name">—</div>
-  </div>
 
   <!-- Scan mode -->
   <div id="scan-section">
@@ -499,16 +532,25 @@
     </div>
   </div>
 
-  <!-- Scoring (no reveal — the physical card is the reveal) -->
+  <!-- Scoring panel — select which player gets points after a song -->
   <div id="scoring-section" class="hidden">
     <div class="panel" style="text-align:center;">
-      <h2 style="font-size:16px; margin-bottom:14px;">Point til <span id="scoring-player" style="color:var(--accent-2);"></span></h2>
-      <div class="scoring-buttons" id="scoring-buttons"></div>
+      <h2 style="font-size:16px; margin-bottom:8px;">Hvem fik kortet rigtigt?</h2>
+      <p id="scoring-track-info" style="font-size:12px; color:var(--muted); margin-bottom:14px;"></p>
+      <div id="scoring-player-buttons" class="scoring-player-list"></div>
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button class="secondary" onclick="skipScoring()" style="flex:1;">Ingen fik det</button>
+        <button class="secondary" onclick="undoLastScoring()" id="undo-btn" style="flex:1;" disabled>↶ Fortryd sidste</button>
+      </div>
     </div>
   </div>
 
-  <div class="panel" data-manual-hide="true">
-    <h2 style="font-size:14px; margin-bottom:10px;">Stilling</h2>
+  <!-- Standings — visible during play, with inline +/- controls -->
+  <div id="standings-panel" class="panel hidden">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <h2 style="font-size:14px;">Stilling</h2>
+      <span id="last-scoring-hint" style="font-size:10px; color:var(--muted);"></span>
+    </div>
     <div class="player-list" id="game-player-list"></div>
   </div>
 
@@ -579,6 +621,36 @@
         <p>
           I Klassisk Hitster vinder den første spiller der har <strong>10 kort</strong> i sin tidslinje.
           I de andre tilstande vinder den første der når målet (default 15 point).
+        </p>
+      </div>
+
+      <div class="rules-section">
+        <h3>🎯 Brug af tokens (valgfrit)</h3>
+        <p style="margin-bottom:12px;">
+          For et mere strategisk spil kan I bruge tokens. Print dem fra admin-siden (<em>🎯 Print tokens</em>)
+          og del ud, fx 5 tokens pr. spiller. Tokens bruges sådan:
+        </p>
+        <table class="rules-table">
+          <tr>
+            <td><strong>På din tur</strong></td>
+            <td>Brug 1 token for at springe den aktuelle sang over og trække et nyt kort.</td>
+          </tr>
+          <tr>
+            <td><strong>Modstanderens tur</strong></td>
+            <td>Råb <em>"HITSTER!"</em> og placér din token på modstanderens tidslinje, hvis du mener
+              kortet er placeret forkert. Hvis du har ret, stjæler du kortet til din egen tidslinje.
+              Hvis du tager fejl, smides tokenen væk.</td>
+          </tr>
+          <tr>
+            <td><strong>Når som helst</strong></td>
+            <td>Byt 3 tokens for at tage et kort fra bunken og placere det direkte på din tidslinje
+              uden at gætte. Du behøver ikke vente på din tur.</td>
+          </tr>
+        </table>
+        <p style="margin-top:12px;">
+          <strong style="color:var(--accent-2);">Tjen tokens:</strong>
+          Hvis du korrekt navngiver både sang og kunstner efter en vellykket placering, får du 1 token
+          (selv hvis du placerede kortet forkert). Maksimum 5 tokens pr. spiller.
         </p>
       </div>
 
@@ -656,10 +728,52 @@ const SUPABASE_URL = 'https://wfbzuzuzpyhnvjrhajnp.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndmYnp1enV6cHlobnZqcmhham5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDQxODgsImV4cCI6MjA5MTgyMDE4OH0.ERpe5nHFfd9r6lbEZ9bkQzkkHvTj-k-u4G9N1ZI3N2w';
 
 let supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-let currentUser = null, currentGame = null, players = [], spotifyToken = null, scanner = null;
+let currentUser = null, spotifyToken = null, scanner = null;
 let currentCard = null, currentTrack = null;
 let playbackStartTime = null, playbackTimer = null, isPaused = false, totalPausedMs = 0, pauseStartTime = null;
 let wakeLock = null;
+
+// ============================================================
+// LOCAL GAME STATE (persisted to localStorage after every change)
+// Replaces the previous multiplayer Supabase-based model.
+// ============================================================
+const LS_KEY = 'tl_local_game_v1';
+let localGame = null;          // { id, playlist_id, players, scanHistory, lastScoring, startedAt, lastActivity }
+let localPlayersDraft = [];    // Players list being built on the create screen
+
+function emptyGame(playlistId) {
+  return {
+    id: Math.random().toString(36).slice(2, 10),
+    playlist_id: playlistId,
+    players: localPlayersDraft.map(p => ({ ...p, score: 0 })), // {id, name, score}
+    scanHistory: [],             // [{trackId, spotify_id, title, artist, year, at, scoredBy}]
+    lastScoring: null,           // for undo: {playerId, points, trackIdx}
+    startedAt: new Date().toISOString(),
+    lastActivity: new Date().toISOString(),
+  };
+}
+
+function saveGame() {
+  if (!localGame) return;
+  localGame.lastActivity = new Date().toISOString();
+  try { localStorage.setItem(LS_KEY, JSON.stringify(localGame)); }
+  catch(e) { console.warn('save failed:', e); }
+}
+
+function loadSavedGame() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch(e) { return null; }
+}
+
+function discardSavedGame() {
+  localStorage.removeItem(LS_KEY);
+  localGame = null;
+  document.getElementById('resume-banner').classList.add('hidden');
+  toast('Gemt spil slettet');
+}
 
 // ============================================================
 // WAKE LOCK — keep screen on
@@ -675,8 +789,19 @@ async function requestWakeLock() {
 async function releaseWakeLock() {
   if (wakeLock) { try { await wakeLock.release(); } catch(e){} wakeLock = null; }
 }
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && currentGame) requestWakeLock();
+
+// On iOS: when the tab comes back to visible after being backgrounded, the SDK
+// often lost its connection. Auto-reconnect. Also re-request wake lock.
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible') return;
+  if (localGame) await requestWakeLock();
+  // If we were using the SDK and it's no longer ready, try to reconnect silently
+  const selectedValue = document.getElementById('device-select')?.value || '__SDK__';
+  const wantsSDK = (selectedValue === '__SDK__' || selectedValue === '');
+  if (wantsSDK && localGame && sdkConnectAttempted && !webPlayerReady) {
+    console.log('Tab became visible — attempting SDK reconnect');
+    await connectSDKFromUserGesture();
+  }
 });
 
 // ============================================================
@@ -702,7 +827,6 @@ async function logout() { await supa.auth.signOut(); location.reload(); }
 // ============================================================
 async function showCreate() {
   show('create-screen');
-  document.body.classList.remove('manual-mode'); // Reset on return to create screen
   const { data } = await supa.from('playlists').select('*').order('name');
   const sel = document.getElementById('playlist-select');
   sel.innerHTML = (data || []).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
@@ -712,7 +836,64 @@ async function showCreate() {
   // Init Web Playback SDK (works on desktop, no-op on mobile)
   await initWebPlaybackSDK();
   await refreshDevices();
-  onModeChange(); // Sync win-points field visibility with default mode
+
+  // Check if we have a saved, unfinished game
+  const saved = loadSavedGame();
+  if (saved && Array.isArray(saved.scanHistory) && saved.scanHistory.length > 0) {
+    const when = new Date(saved.lastActivity);
+    const ago = Math.floor((Date.now() - when.getTime()) / 60000);
+    const agoStr = ago < 1 ? 'lige nu' : ago < 60 ? `${ago} min siden` : `${Math.floor(ago/60)} t siden`;
+    const count = saved.scanHistory.length;
+    const playerInfo = saved.players.length > 0
+      ? ` · ${saved.players.length} spillere`
+      : '';
+    document.getElementById('resume-desc').textContent =
+      `${count} ${count === 1 ? 'sang' : 'sange'} spillet${playerInfo} · sidst aktiv ${agoStr}`;
+    document.getElementById('resume-banner').classList.remove('hidden');
+  } else {
+    document.getElementById('resume-banner').classList.add('hidden');
+  }
+
+  // Reset the draft player list
+  localPlayersDraft = [];
+  renderPlayersDraft();
+}
+
+// ============================================================
+// LOCAL PLAYER MANAGEMENT (on the create screen)
+// ============================================================
+function addLocalPlayer() {
+  const input = document.getElementById('new-player-name');
+  const name = (input.value || '').trim();
+  if (!name) return;
+  if (localPlayersDraft.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+    toast('Der er allerede en spiller med det navn', 'error');
+    return;
+  }
+  localPlayersDraft.push({ id: Math.random().toString(36).slice(2, 10), name });
+  input.value = '';
+  renderPlayersDraft();
+  input.focus();
+}
+
+function removeLocalPlayer(id) {
+  localPlayersDraft = localPlayersDraft.filter(p => p.id !== id);
+  renderPlayersDraft();
+}
+
+function renderPlayersDraft() {
+  const list = document.getElementById('players-list');
+  if (!list) return;
+  if (localPlayersDraft.length === 0) {
+    list.innerHTML = '<div style="color:var(--muted); font-size:12px; padding:8px 0;">Ingen spillere tilføjet</div>';
+    return;
+  }
+  list.innerHTML = localPlayersDraft.map(p => `
+    <div class="player-chip">
+      <span>${escapeHtml(p.name)}</span>
+      <button class="chip-remove" onclick="removeLocalPlayer('${p.id}')" aria-label="Fjern">✕</button>
+    </div>
+  `).join('');
 }
 
 async function refreshDevices() {
@@ -762,9 +943,7 @@ async function createGame() {
     if (!webPlayerReady) {
       toast('Aktiverer afspiller...');
       await connectSDKFromUserGesture();
-      // On iOS, also call activateElement now while we still have the gesture context
       if (webPlayer) { try { await webPlayer.activateElement(); } catch(e) {} }
-      // Wait briefly for 'ready' event
       await new Promise(res => {
         const start = Date.now();
         const iv = setInterval(() => {
@@ -782,8 +961,6 @@ async function createGame() {
       await disconnectSDKIfActive();
       await new Promise(r => setTimeout(r, 300));
     }
-    // Verify the chosen device still exists and do an initial transfer so playback
-    // is "parked" there when the first card is scanned.
     const token = await getValidSpotifyToken();
     if (token) {
       const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
@@ -803,37 +980,15 @@ async function createGame() {
   }
 
   const playlist_id = document.getElementById('playlist-select').value;
-  const mode = document.getElementById('mode-select').value;
-  const win_points = parseInt(document.getElementById('win-points').value, 10) || 999;
   if (!playlist_id) return toast('Vælg en playliste', 'error');
-
-  // Remember selected device by NAME (IDs change between sessions)
   if (selectedValue) localStorage.setItem('tl_device_name', selectedValue);
 
-  const code = generateCode();
-  const { data, error } = await supa.from('games').insert({
-    code, host_id: currentUser.id, playlist_id, mode, win_points, status: 'lobby'
-  }).select().single();
-  if (error) return toast(error.message, 'error');
+  // Build and save the new local game
+  localGame = emptyGame(playlist_id);
+  saveGame();
 
-  currentGame = data;
   await requestWakeLock();
-
-  // Manual mode: skip lobby (no players need to join) and go directly to the game
-  if (mode === 'manual') {
-    document.body.classList.add('manual-mode');
-    await startGame();
-  } else {
-    document.body.classList.remove('manual-mode');
-    await showLobby();
-  }
-}
-
-// Hide the "Vinderpoint" field when manual mode is selected (since nobody's counting)
-function onModeChange() {
-  const mode = document.getElementById('mode-select').value;
-  const winRow = document.getElementById('win-points-row');
-  if (winRow) winRow.style.display = (mode === 'manual') ? 'none' : '';
+  showGame();
 }
 
 // When user changes device in the dropdown: if they picked an external device
@@ -848,171 +1003,225 @@ async function onDeviceChange() {
   if (selectedValue) localStorage.setItem('tl_device_name', selectedValue);
 }
 
-function generateCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from({length: 4}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-}
-
 // ============================================================
-// LOBBY
+// RESUME saved game
 // ============================================================
-async function showLobby() {
-  show('lobby-screen');
-  document.getElementById('game-code').textContent = currentGame.code;
-  const base = window.location.href.replace(/\/[^\/]*(\?.*)?$/, '');
-  const joinUrl = `${base}/play.html?code=${currentGame.code}`;
-  document.getElementById('join-url-display').textContent = base.replace(/^https?:\/\//, '') + '/play';
-  const qr = document.getElementById('join-qr');
-  qr.innerHTML = '';
-  new QRCode(qr, { text: joinUrl, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
-  await loadPlayers();
-  subscribeToPlayers();
-}
-
-async function loadPlayers() {
-  const { data } = await supa.from('players').select('*').eq('game_id', currentGame.id).order('joined_at');
-  players = data || [];
-  renderPlayers();
-}
-
-function renderPlayers() {
-  document.getElementById('player-count').textContent = players.length;
-  document.getElementById('player-list').innerHTML = players.length === 0
-    ? '<div style="color:var(--muted); text-align:center; padding:20px; font-size:13px;">Venter på spillere (start kan ske uanset)...</div>'
-    : players.map(p => `<div class="player-row"><span class="player-name">${escapeHtml(p.name)}</span></div>`).join('');
-}
-
-let playersChannel = null;
-function subscribeToPlayers() {
-  if (playersChannel) supa.removeChannel(playersChannel);
-  playersChannel = supa.channel(`game-${currentGame.id}-players`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `game_id=eq.${currentGame.id}` },
-      () => loadPlayers())
-    .subscribe();
-}
-
-async function cancelGame() {
-  if (!confirm('Luk spillet? Alle spillere bliver sparket ud.')) return;
-  await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
-  await supa.from('games').delete().eq('id', currentGame.id);
-  currentGame = null;
-  if (playersChannel) supa.removeChannel(playersChannel);
-  await releaseWakeLock();
-  await showCreate();
-}
-
-// ============================================================
-// START GAME (works with 0-N players)
-// ============================================================
-async function startGame() {
-  const firstPlayer = players[0] || null;
-  await supa.from('games').update({
-    status: 'playing',
-    current_player_id: firstPlayer ? firstPlayer.id : null,
-  }).eq('id', currentGame.id);
-  currentGame.status = 'playing';
-  currentGame.current_player_id = firstPlayer ? firstPlayer.id : null;
-  await showGame();
-}
-
-// ============================================================
-// ACTIVE GAME
-// ============================================================
-async function showGame() {
-  show('game-screen');
-  await loadPlayers();
-  renderGameStanding();
-  startScanner();
-
-  if (playersChannel) supa.removeChannel(playersChannel);
-  playersChannel = supa.channel(`game-${currentGame.id}-active`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `game_id=eq.${currentGame.id}` },
-      async () => { await loadPlayers(); renderGameStanding(); checkWinner(); })
-    .subscribe();
-}
-
-function renderGameStanding() {
-  const active = players.find(p => p.id === currentGame.current_player_id);
-  document.getElementById('active-player-name').textContent = active ? active.name : '(ingen spiller)';
-
-  const sorted = [...players].sort((a,b) => b.score - a.score);
-  document.getElementById('game-player-list').innerHTML = players.length === 0
-    ? '<div style="color:var(--muted); text-align:center; padding:10px; font-size:13px;">Ingen spillere</div>'
-    : sorted.map(p => {
-        const isActive = p.id === currentGame.current_player_id;
-        return `<div class="player-row" style="${isActive ? 'border:1px solid var(--accent-2);' : ''}">
-          <span class="player-name">${isActive ? '▶ ' : ''}${escapeHtml(p.name)}</span>
-          <span class="player-score">${p.score}</span>
-        </div>`;
-      }).join('');
-}
-
-function checkWinner() {
-  const winner = players.find(p => p.score >= currentGame.win_points);
-  if (winner && currentGame.status !== 'finished') {
-    supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
-    setTimeout(() => alert(`🏆 ${winner.name} vinder med ${winner.score} point!`), 100);
+async function resumeGame() {
+  const saved = loadSavedGame();
+  if (!saved) return;
+  localGame = saved;
+  // Make sure SDK/device is ready for the device the user currently has selected
+  const selectedValue = document.getElementById('device-select').value;
+  const wantsSDK = (selectedValue === '__SDK__' || selectedValue === '');
+  if (wantsSDK && !webPlayerReady) {
+    await connectSDKFromUserGesture();
+    if (webPlayer) { try { await webPlayer.activateElement(); } catch(e) {} }
+    await new Promise(res => {
+      const start = Date.now();
+      const iv = setInterval(() => {
+        if (webPlayerReady || Date.now() - start > 4000) { clearInterval(iv); res(); }
+      }, 100);
+    });
+  } else if (!wantsSDK && webPlayerReady) {
+    await disconnectSDKIfActive();
   }
+  await requestWakeLock();
+  showGame();
+  toast('Spil genoptaget');
 }
 
+// ============================================================
+// ACTIVE GAME SCREEN
+// ============================================================
+function showGame() {
+  show('game-screen');
+  renderStandings();
+  startScanner();
+}
+
+function renderStandings() {
+  const panel = document.getElementById('standings-panel');
+  const list = document.getElementById('game-player-list');
+  if (!localGame || localGame.players.length === 0) {
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  const sorted = [...localGame.players].sort((a, b) => b.score - a.score);
+  list.innerHTML = sorted.map((p, i) => {
+    const medal = i === 0 && p.score > 0 ? '🥇' : i === 1 && p.score > 0 ? '🥈' : i === 2 && p.score > 0 ? '🥉' : '';
+    return `<div class="player-row">
+      <span class="player-name">${medal ? medal + ' ' : ''}${escapeHtml(p.name)}</span>
+      <div class="player-score-controls">
+        <button class="score-btn" onclick="adjustScore('${p.id}', -1)" title="−1">−</button>
+        <span class="player-score">${p.score}</span>
+        <button class="score-btn" onclick="adjustScore('${p.id}', 1)" title="+1">+</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Update undo button state
+  const undoBtn = document.getElementById('undo-btn');
+  if (undoBtn) undoBtn.disabled = !localGame.lastScoring;
+}
+
+// Manual score adjustment via +/- buttons next to each player
+function adjustScore(playerId, delta) {
+  if (!localGame) return;
+  const p = localGame.players.find(x => x.id === playerId);
+  if (!p) return;
+  p.score = Math.max(0, p.score + delta);
+  // Record this as "last scoring" for undo
+  localGame.lastScoring = { playerId, points: delta, trackIdx: -1 /* manual adjustment */ };
+  saveGame();
+  renderStandings();
+}
+
+// Called from the scoring panel after a song: attributes the current card to
+// a specific player. `points` defaults to 1 (classic Hitster).
+function awardCardTo(playerId, points = 1) {
+  if (!localGame) return;
+  const p = localGame.players.find(x => x.id === playerId);
+  if (!p) return;
+
+  p.score += points;
+
+  // Mark the last scan in history with the scorer, for undo
+  const lastIdx = localGame.scanHistory.length - 1;
+  if (lastIdx >= 0) {
+    localGame.scanHistory[lastIdx].scoredBy = playerId;
+  }
+  localGame.lastScoring = { playerId, points, trackIdx: lastIdx };
+  saveGame();
+
+  hideScoringPanel();
+  backToScan();
+}
+
+function skipScoring() {
+  // No one got it — just move on without awarding
+  if (localGame) {
+    const lastIdx = localGame.scanHistory.length - 1;
+    if (lastIdx >= 0) localGame.scanHistory[lastIdx].scoredBy = null;
+    localGame.lastScoring = null;
+    saveGame();
+  }
+  hideScoringPanel();
+  backToScan();
+}
+
+function undoLastScoring() {
+  if (!localGame || !localGame.lastScoring) return;
+  const { playerId, points, trackIdx } = localGame.lastScoring;
+  const p = localGame.players.find(x => x.id === playerId);
+  if (p) p.score = Math.max(0, p.score - points);
+  if (trackIdx >= 0 && localGame.scanHistory[trackIdx]) {
+    localGame.scanHistory[trackIdx].scoredBy = null;
+  }
+  localGame.lastScoring = null;
+  saveGame();
+  renderStandings();
+  toast('Fortrudt');
+}
+
+function hideScoringPanel() {
+  document.getElementById('scoring-section').classList.add('hidden');
+}
+
+function showScoringPanel() {
+  // Build a row of player buttons for "who got the card?"
+  const section = document.getElementById('scoring-section');
+  const btnWrap = document.getElementById('scoring-player-buttons');
+  const info = document.getElementById('scoring-track-info');
+
+  if (currentTrack) {
+    info.textContent = `${currentTrack.artist} — ${currentTrack.title} (${currentTrack.year})`;
+  } else {
+    info.textContent = '';
+  }
+
+  if (!localGame || localGame.players.length === 0) {
+    // No players → skip scoring UI, go straight back to scan
+    section.classList.add('hidden');
+    backToScan();
+    return;
+  }
+
+  btnWrap.innerHTML = localGame.players.map(p => `
+    <button class="player-score-btn" onclick="awardCardTo('${p.id}', 1)">
+      <span class="pname">${escapeHtml(p.name)}</span>
+      <span class="pcurrent">${p.score}</span>
+    </button>
+  `).join('');
+
+  document.getElementById('scan-section').classList.add('hidden');
+  section.classList.remove('hidden');
+  renderStandings();
+}
+
+function backToScan() {
+  // Go back to the "between-rounds" vinyl overlay before the next scan.
+  // This gives the host a clear moment to prepare before the camera starts.
+  document.getElementById('scoring-section').classList.add('hidden');
+  document.getElementById('playing-overlay').classList.add('hidden');
+  document.getElementById('between-overlay').classList.remove('hidden');
+  scanReady = false;
+}
+
+// ============================================================
+// END GAME
+// ============================================================
 async function endGame() {
   if (!confirm('Vil du afslutte spillet?')) return;
 
-  // Hide all overlays immediately — user expects the game to be over now
   document.getElementById('playing-overlay').classList.add('hidden');
   document.getElementById('between-overlay').classList.add('hidden');
   document.getElementById('countdown-overlay').classList.add('hidden');
   stopPlaybackTimer();
 
-  // Manual mode: no scoreboard, just exit cleanly
-  if (currentGame && currentGame.mode === 'manual') {
-    await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
-    await stopTrack();
-    await releaseWakeLock();
-    toast('Spillet er afsluttet');
-    setTimeout(() => location.reload(), 800);
-    return;
-  }
-
-  // Scored modes: mark finished, stop audio, show final standing briefly, then reload
-  await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGame.id);
   await stopTrack();
   await releaseWakeLock();
-  showFinalStanding();
+  await stopScanner();
+
+  // If there are players, show a final standings briefly
+  if (localGame && localGame.players.length > 0) {
+    showFinalStanding();
+  } else {
+    discardSavedGame();
+    toast('Spillet er afsluttet');
+    setTimeout(() => location.reload(), 600);
+  }
 }
 
 function showFinalStanding() {
-  // Hide game sections and show a simple final-standing panel
   document.getElementById('scan-section').classList.add('hidden');
   document.getElementById('scoring-section').classList.add('hidden');
 
-  const sorted = [...players].sort((a, b) => b.score - a.score);
+  const sorted = [...localGame.players].sort((a, b) => b.score - a.score);
   const listEl = document.getElementById('game-player-list');
   if (listEl) {
-    listEl.innerHTML = sorted.length === 0
-      ? '<div style="color:var(--muted); text-align:center; padding:14px; font-size:13px;">Ingen spillere</div>'
-      : sorted.map((p, i) => {
-          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
-          return `<div class="player-row" style="${i === 0 ? 'border:1px solid var(--accent-2);' : ''}">
-            <span class="player-name">${medal} ${escapeHtml(p.name)}</span>
-            <span class="player-score">${p.score}</span>
-          </div>`;
-        }).join('');
+    listEl.innerHTML = sorted.map((p, i) => {
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+      return `<div class="player-row" style="${i === 0 ? 'border:1px solid var(--accent-2);' : ''}">
+        <span class="player-name">${medal} ${escapeHtml(p.name)}</span>
+        <span class="player-score">${p.score}</span>
+      </div>`;
+    }).join('');
   }
 
-  // Replace the bottom action bar with a "Nyt spil" button
-  const nowPlaying = document.querySelector('.now-playing');
-  if (nowPlaying) {
-    nowPlaying.innerHTML = '<div class="label">Slutstilling</div><div class="turn-name" style="color:var(--accent-2);">🏆</div>';
+  const standingsPanel = document.getElementById('standings-panel');
+  if (standingsPanel) {
+    const hdr = standingsPanel.querySelector('h2');
+    if (hdr) hdr.textContent = '🏆 Slutstilling';
   }
-  const hdr = document.querySelector('#game-screen [data-manual-hide] h2');
-  if (hdr) hdr.textContent = 'Slutstilling';
 
   toast('Spillet er afsluttet');
   setTimeout(() => {
+    discardSavedGame();
     if (confirm('Vil du starte et nyt spil?')) location.reload();
-  }, 1200);
+  }, 1500);
 }
+
 
 // ============================================================
 // SCANNER — stays running, only processes scans when ready
@@ -1136,11 +1345,36 @@ async function onScanned(decoded) {
     currentTrack = card.track;
   }
 
-  // 3-second countdown before the song plays — gives players time to get ready
+  // Stop any currently playing song first — prevents audio leaking into countdown
+  await stopTrack();
+  stopPlaybackTimer();
+
+  // Check for duplicate scan within this game session
+  if (localGame && localGame.scanHistory.some(h => h.spotify_id === currentTrack.spotify_id)) {
+    if (!confirm(`"${currentTrack.title}" af ${currentTrack.artist} er allerede blevet scannet i dette spil. Vil du afspille den alligevel?`)) {
+      scanReady = true;
+      return;
+    }
+  }
+
+  // Record this scan in history
+  if (localGame) {
+    localGame.scanHistory.push({
+      trackId: currentTrack.id,
+      spotify_id: currentTrack.spotify_id,
+      title: currentTrack.title,
+      artist: currentTrack.artist,
+      year: currentTrack.year,
+      at: new Date().toISOString(),
+      scoredBy: null,
+    });
+    saveGame();
+  }
+
+  // 3-second countdown with audio cue
   await showCountdown(3);
 
-  // Smooth crossfade: render the playing overlay BEHIND the still-visible countdown,
-  // then hide the countdown in the next frame. Avoids flashing the scan screen.
+  // Smooth crossfade to playing overlay (render behind, then hide countdown)
   showPlayingOverlay();
   await new Promise(r => requestAnimationFrame(r));
   document.getElementById('countdown-overlay').classList.add('hidden');
@@ -1149,7 +1383,38 @@ async function onScanned(decoded) {
 }
 
 // ============================================================
-// COUNTDOWN (3...2...1 before the song starts)
+// AUDIO CUES — Web Audio API (short beep)
+// ============================================================
+let audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e) { return null; }
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+function beep(frequency = 800, durationMs = 150, volume = 0.45) {
+  const ctx = ensureAudio();
+  if (!ctx) return;
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = frequency;
+    osc.type = 'sine';
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.01);
+    gain.gain.setValueAtTime(volume, now + durationMs / 1000 - 0.03);
+    gain.gain.linearRampToValueAtTime(0, now + durationMs / 1000);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + durationMs / 1000 + 0.02);
+  } catch (e) {}
+}
+
+// ============================================================
+// COUNTDOWN (3...2...1 before the song starts) — with beep audio cue
 // NOTE: Leaves overlay visible on resolve — caller is responsible for hiding it
 // once the next screen has been rendered. This prevents a flash of the game UI
 // between countdown disappearing and playing overlay appearing.
@@ -1158,45 +1423,38 @@ function showCountdown(seconds) {
   return new Promise(resolve => {
     const overlay = document.getElementById('countdown-overlay');
     const numEl = document.getElementById('countdown-number');
-    // Hide any other screens while counting down
     document.getElementById('scan-section').classList.add('hidden');
     document.getElementById('scoring-section').classList.add('hidden');
     document.getElementById('between-overlay').classList.add('hidden');
     overlay.classList.remove('hidden');
 
     let remaining = seconds;
-    const renderNumber = (n) => {
+    const renderNumber = (n, isFinal) => {
       numEl.textContent = n;
       numEl.classList.remove('pulse');
       void numEl.offsetWidth; // restart animation
       numEl.classList.add('pulse');
+      // Higher-pitched, longer beep on the final number
+      beep(isFinal ? 1200 : 700, isFinal ? 250 : 130, 0.45);
     };
-    renderNumber(remaining);
+    renderNumber(remaining, false);
 
     const iv = setInterval(() => {
       remaining--;
       if (remaining <= 0) {
         clearInterval(iv);
-        // Do NOT hide the overlay here — caller hides it once the next screen is up.
         resolve();
       } else {
-        renderNumber(remaining);
+        renderNumber(remaining, remaining === 1);
       }
     }, 1000);
   });
 }
 
 // ============================================================
-// MANUAL MODE: Between-rounds overlay (fullscreen vinyl rings)
+// BETWEEN-ROUNDS: "Scan næste kort" button handler
+// (The vinyl rings overlay is shown from backToScan() after endSong)
 // ============================================================
-function showReadyForNext() {
-  document.getElementById('scan-section').classList.add('hidden');
-  document.getElementById('scoring-section').classList.add('hidden');
-  document.getElementById('playing-overlay').classList.add('hidden');
-  document.getElementById('between-overlay').classList.remove('hidden');
-  scanReady = false; // Don't accept scans until user taps "Scan næste kort"
-}
-
 function readyForNextCard() {
   document.getElementById('between-overlay').classList.add('hidden');
   startScanner();
@@ -1261,13 +1519,13 @@ async function endSong() {
   await stopTrack();
   document.getElementById('playing-overlay').classList.add('hidden');
 
-  // Manual mode: skip scoring entirely, show "Klar" button for next card
-  if (currentGame && currentGame.mode === 'manual') {
-    showReadyForNext();
-    return;
+  // If we have named players, show the scoring panel to pick who got the card.
+  // If no players, just go back to scan (classic Hitster — host tracks scores manually).
+  if (localGame && localGame.players.length > 0) {
+    showScoringPanel();
+  } else {
+    backToScan();
   }
-
-  showScoring();
 }
 
 // ============================================================
@@ -1632,57 +1890,10 @@ async function getValidSpotifyToken() {
 }
 
 // ============================================================
-// SCORING (no reveal — physical card is the reveal)
-// ============================================================
-function showScoring() {
-  document.getElementById('scan-section').classList.add('hidden');
-  document.getElementById('scoring-section').classList.remove('hidden');
-  document.getElementById('playing-overlay').classList.add('hidden');
-
-  const active = players.find(p => p.id === currentGame.current_player_id);
-  document.getElementById('scoring-player').textContent = active ? active.name : '';
-
-  const buttons = document.getElementById('scoring-buttons');
-  if (!active) {
-    buttons.innerHTML = `<button class="secondary" style="grid-column: span 2;" onclick="nextTurn()">Næste kort →</button>`;
-  } else {
-    buttons.innerHTML = `
-      <button class="success" onclick="awardPoints(0)">0 point</button>
-      <button class="success" onclick="awardPoints(1)">1 point</button>
-      <button class="success" onclick="awardPoints(2)">2 point</button>
-      <button class="success" onclick="awardPoints(3)">3 point</button>
-    `;
-  }
-}
-
-async function awardPoints(points) {
-  const active = players.find(p => p.id === currentGame.current_player_id);
-  if (active) {
-    await supa.from('players').update({ score: active.score + points }).eq('id', active.id);
-  }
-  await nextTurn();
-}
-
-async function nextTurn() {
-  document.getElementById('playing-overlay').classList.add('hidden');
-  let nextPlayerId = null;
-  if (players.length > 0) {
-    const idx = players.findIndex(p => p.id === currentGame.current_player_id);
-    const next = players[(idx + 1) % players.length];
-    nextPlayerId = next.id;
-  }
-  await supa.from('games').update({ current_player_id: nextPlayerId, current_card_id: null }).eq('id', currentGame.id);
-  currentGame.current_player_id = nextPlayerId;
-  await loadPlayers();
-  renderGameStanding();
-  startScanner();
-}
-
-// ============================================================
 // HELPERS
 // ============================================================
 function show(id) {
-  ['auth-screen','create-screen','lobby-screen','game-screen'].forEach(s =>
+  ['auth-screen','create-screen','game-screen'].forEach(s =>
     document.getElementById(s).classList.toggle('hidden', s !== id));
   // Only show install hint on the auth + create screens, hide during actual gameplay
   const hint = document.getElementById('install-hint');
@@ -1744,6 +1955,17 @@ function toast(msg, type) {
 }
 
 checkSession();
+
+// ============================================================
+// SERVICE WORKER REGISTRATION
+// ============================================================
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js').catch(err => {
+      console.warn('Service worker registration failed:', err);
+    });
+  });
+}
 </script>
 </body>
 </html>
