@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- iOS automatically rounds corners at ~22% radius for touch icons, but we include
+       a rounded rect background for Android/desktop where the full SVG is used. -->
+  <defs>
+    <!-- Background gradient — purple→black like the app's backdrop, but saturated -->
+    <radialGradient id="bgGrad" cx="0.3" cy="0.2" r="1.2">
+      <stop offset="0%" stop-color="#2d1545"/>
+      <stop offset="50%" stop-color="#1a0833"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </radialGradient>
+
+    <!-- Vinyl record gradient — matte black with subtle sheen -->
+    <radialGradient id="vinylGrad" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#1a1a1a"/>
+      <stop offset="80%" stop-color="#0a0a0a"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </radialGradient>
+
+    <!-- Light sweep across vinyl (gives it that glossy record look) -->
+    <linearGradient id="vinylShine" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.18)"/>
+      <stop offset="45%" stop-color="rgba(255,255,255,0)"/>
+      <stop offset="55%" stop-color="rgba(255,255,255,0)"/>
+      <stop offset="100%" stop-color="rgba(255,56,100,0.15)"/>
+    </linearGradient>
+
+    <!-- Center label gradient — pink→cyan like the app's accent gradient -->
+    <linearGradient id="labelGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ff3864"/>
+      <stop offset="100%" stop-color="#00d4ff"/>
+    </linearGradient>
+
+    <!-- Glow filter for the center hole -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- App icon background (rounded square) -->
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+
+  <!-- Subtle color glow behind the record -->
+  <circle cx="256" cy="256" r="220" fill="#ff3864" opacity="0.08"/>
+  <circle cx="340" cy="180" r="100" fill="#00d4ff" opacity="0.06"/>
+
+  <!-- Vinyl record body -->
+  <circle cx="256" cy="256" r="200" fill="url(#vinylGrad)"/>
+
+  <!-- Grooves on the vinyl (concentric circles at decreasing intervals) -->
+  <g fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="1">
+    <circle cx="256" cy="256" r="195"/>
+    <circle cx="256" cy="256" r="188"/>
+    <circle cx="256" cy="256" r="180"/>
+    <circle cx="256" cy="256" r="170"/>
+    <circle cx="256" cy="256" r="158"/>
+    <circle cx="256" cy="256" r="144"/>
+    <circle cx="256" cy="256" r="128"/>
+  </g>
+
+  <!-- Stronger accent grooves (gives depth) -->
+  <g fill="none" stroke="rgba(255,56,100,0.1)" stroke-width="1.5">
+    <circle cx="256" cy="256" r="192"/>
+    <circle cx="256" cy="256" r="175"/>
+    <circle cx="256" cy="256" r="150"/>
+  </g>
+  <g fill="none" stroke="rgba(0,212,255,0.08)" stroke-width="1.5">
+    <circle cx="256" cy="256" r="183"/>
+    <circle cx="256" cy="256" r="165"/>
+    <circle cx="256" cy="256" r="135"/>
+  </g>
+
+  <!-- Glossy highlight on upper-left (makes it look shiny) -->
+  <circle cx="256" cy="256" r="200" fill="url(#vinylShine)"/>
+
+  <!-- Record edge shadow -->
+  <circle cx="256" cy="256" r="200" fill="none" stroke="rgba(0,0,0,0.6)" stroke-width="2"/>
+
+  <!-- Center label (the paper sticker on a real record) -->
+  <circle cx="256" cy="256" r="85" fill="url(#labelGrad)"/>
+  <circle cx="256" cy="256" r="85" fill="none" stroke="rgba(0,0,0,0.25)" stroke-width="1"/>
+
+  <!-- Label inner ring — subtle darker circle near edge of label -->
+  <circle cx="256" cy="256" r="78" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+
+  <!-- "MUSIKA" text curved around the top of the label -->
+  <defs>
+    <path id="textCircle" d="M 256,256 m -60,0 a 60,60 0 1,1 120,0" fill="none"/>
+  </defs>
+  <text font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif"
+        font-size="18" font-weight="900" fill="white" letter-spacing="3"
+        text-anchor="middle" dominant-baseline="middle">
+    <textPath href="#textCircle" startOffset="50%">MUSIKA</textPath>
+  </text>
+
+  <!-- Eighth-note icon in the middle of the label (slightly above center so spindle hole doesn't interfere) -->
+  <g transform="translate(256, 258)">
+    <!-- Note stem -->
+    <rect x="-3" y="-34" width="6" height="40" fill="white"/>
+    <!-- Note flag -->
+    <path d="M 3,-34 Q 24,-30 24,-10 Q 24,-18 3,-18 Z" fill="white"/>
+    <!-- Note head (tilted ellipse) -->
+    <ellipse cx="-6" cy="6" rx="13" ry="10" fill="white" transform="rotate(-20 -6 6)"/>
+  </g>
+
+  <!-- Center spindle hole — small dark dot, not glowing (cleaner look) -->
+  <circle cx="256" cy="256" r="4" fill="rgba(0,0,0,0.5)"/>
+  <circle cx="256" cy="256" r="2.5" fill="#000"/>
+</svg>
