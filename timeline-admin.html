@@ -12,7 +12,9 @@
 <meta name="apple-mobile-web-app-title" content="Musika Admin">
 <meta name="theme-color" content="#0a0a0f">
 <link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='96' fill='%230a0a0f'/%3E%3Ccircle cx='256' cy='256' r='200' fill='none' stroke='%23ff3864' stroke-width='16'/%3E%3Ccircle cx='256' cy='256' r='150' fill='none' stroke='%2300d4ff' stroke-width='16'/%3E%3Ccircle cx='256' cy='256' r='100' fill='none' stroke='%23ff3864' stroke-width='16'/%3E%3Ccircle cx='256' cy='256' r='40' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -91,10 +93,33 @@
     display: flex; gap: 12px; align-items: center; padding: 10px;
     background: var(--panel-light); border-radius: 10px; border: 1px solid var(--border);
   }
+  .result.dupe { opacity: 0.55; }
+  .result.dupe button.tiny { background: var(--panel); color: var(--muted); cursor: not-allowed; }
   .result img { width: 48px; height: 48px; border-radius: 6px; }
   .result-info { flex: 1; min-width: 0; }
   .result-title { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .result-meta { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dupe-badge {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    background: var(--warning); color: black; padding: 2px 6px;
+    border-radius: 4px; margin-left: 6px; letter-spacing: 0.5px;
+    text-transform: uppercase; vertical-align: middle;
+  }
+  .result .search-play {
+    width: 32px; height: 32px; border-radius: 50%; padding: 0;
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    font-size: 12px; cursor: pointer; box-shadow: none;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .result .search-play:hover { color: var(--accent-2); border-color: var(--accent-2); }
+  .result .search-play.playing { background: var(--accent-2); color: black; border-color: var(--accent-2); }
+
+  /* Track list controls (filter + sort) */
+  .track-controls {
+    display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .track-controls #track-filter { flex: 1 1 240px; }
+  .track-controls #track-sort { flex: 0 1 200px; }
 
   /* Track list */
   .track-list { display: flex; flex-direction: column; gap: 6px; max-height: 500px; overflow-y: auto; }
@@ -288,6 +313,17 @@
   <div class="panel" id="tracks-panel">
     <h2 id="tracks-heading">Tracks</h2>
     <div class="stats" id="tracks-stats"></div>
+    <div class="track-controls">
+      <input type="text" id="track-filter" placeholder="🔍 Søg i listen (titel, kunstner, album, år)..."
+             oninput="renderTracks()">
+      <select id="track-sort" onchange="renderTracks()">
+        <option value="added">Sortér: Tilføjet sidst</option>
+        <option value="year-asc">Sortér: Årstal ↑</option>
+        <option value="year-desc">Sortér: Årstal ↓</option>
+        <option value="artist">Sortér: Kunstner A-Z</option>
+        <option value="title">Sortér: Titel A-Z</option>
+      </select>
+    </div>
     <div class="track-list" id="track-list"></div>
     <div style="display:flex; gap:10px; margin-top:18px; flex-wrap:wrap;">
       <button onclick="generateAndPrint()" id="print-btn" style="flex:1; min-width:200px;">🖨️ Generér kort til print</button>
@@ -719,12 +755,23 @@ function showPickList() {
 async function importAllFiltered() {
   if (!currentPlaylist) return toast('Vælg en playliste først', 'error');
   const filterLive = document.getElementById('filter-live').checked;
-  const tracks = filterLive
+  let tracksToImport = filterLive
     ? importedPlaylist.tracks.filter(t => !isLiveOrRemaster(t))
     : importedPlaylist.tracks;
 
-  if (tracks.length === 0) return toast('Ingen tracks at importere', 'error');
-  if (!confirm(`Importér ${tracks.length} tracks til "${currentPlaylist.name}"?`)) return;
+  // Skip tracks already in this playlist (avoid duplicate-import problem)
+  const existingIds = new Set((window.tracks || []).map(x => x.spotify_id));
+  const beforeFilter = tracksToImport.length;
+  tracksToImport = tracksToImport.filter(t => !existingIds.has(t.spotify_id));
+  const skipped = beforeFilter - tracksToImport.length;
+
+  if (tracksToImport.length === 0) {
+    return toast(skipped > 0 ? `Alle ${skipped} tracks er allerede på playlisten` : 'Ingen tracks at importere', 'error');
+  }
+  const skipMsg = skipped > 0 ? ` (${skipped} duplikater springes over)` : '';
+  if (!confirm(`Importér ${tracksToImport.length} tracks til "${currentPlaylist.name}"${skipMsg}?`)) return;
+  // Keep variable name `tracks` for the rest of the function to minimize diff
+  const tracks = tracksToImport;
 
   const btn = document.querySelector('#import-preview button');
   if (btn) { btn.disabled = true; btn.textContent = 'Importerer...'; }
@@ -778,16 +825,60 @@ function renderSearchResults(tracks) {
     results.innerHTML = '<div class="empty-state">Ingen resultater</div>';
     return;
   }
-  results.innerHTML = tracks.map((t, i) => `
-    <div class="result">
+  // Build a set of spotify_ids already in this playlist for duplicate detection
+  const existingIds = new Set((window.tracks || []).map(x => x.spotify_id));
+
+  results.innerHTML = tracks.map((t) => {
+    const isDupe = existingIds.has(t.spotify_id);
+    const tJson = JSON.stringify(t).replace(/'/g, "&#39;");
+    return `
+    <div class="result${isDupe ? ' dupe' : ''}">
       <img src="${t.cover_url || ''}" onerror="this.style.visibility='hidden'">
       <div class="result-info">
-        <div class="result-title">${escapeHtml(t.title)}</div>
+        <div class="result-title">${escapeHtml(t.title)}${isDupe ? ' <span class="dupe-badge">allerede på playliste</span>' : ''}</div>
         <div class="result-meta">${escapeHtml(t.artist)} · ${t.year || '?'} · ${escapeHtml(t.album || '')}</div>
       </div>
-      <button class="tiny" onclick='addTrack(${JSON.stringify(t).replace(/'/g, "&#39;")})'>+ Tilføj</button>
+      <button class="icon-btn search-play" data-search-play="${escapeHtml(t.spotify_id)}"
+              onclick="toggleSearchPreview('${escapeHtml(t.spotify_id)}', this)" title="Afspil">▶</button>
+      <button class="tiny" ${isDupe ? 'disabled' : ''} onclick='addTrack(${tJson})'>${isDupe ? 'Tilføjet' : '+ Tilføj'}</button>
     </div>
-  `).join('');
+  `;
+  }).join('');
+}
+
+// Preview playback in search results — reuses the main admin Spotify controller.
+// Tap once to play, tap again to stop. Only one preview runs at a time.
+let searchPreviewActive = null;
+function toggleSearchPreview(spotifyId, btn) {
+  if (searchPreviewActive === spotifyId) {
+    // Same track clicked again → stop
+    stopPreview();
+    searchPreviewActive = null;
+    return;
+  }
+  searchPreviewActive = spotifyId;
+
+  // Reset all search-play buttons
+  document.querySelectorAll('[data-search-play]').forEach(b => {
+    b.classList.remove('playing');
+    b.textContent = '▶';
+  });
+  btn.classList.add('playing');
+  btn.textContent = '■';
+
+  // Reuse the same embed player as the track list. Build a fake track object.
+  const fakeTrack = {
+    id: 'search-' + spotifyId,
+    title: btn.closest('.result').querySelector('.result-title').textContent,
+    artist: btn.closest('.result').querySelector('.result-meta').textContent.split(' · ')[0],
+    year: '',
+    spotify_id: spotifyId,
+    cover_url: btn.closest('.result').querySelector('img')?.src || '',
+  };
+  // Push into tracks array temporarily so togglePlayTrack can find it
+  const existingIdx = tracks.findIndex(t => t.id === fakeTrack.id);
+  if (existingIdx < 0) tracks.push(fakeTrack);
+  togglePlayTrack(fakeTrack.id, spotifyId);
 }
 
 async function addTrack(t) {
@@ -845,6 +936,11 @@ async function loadTracks() {
 
 function renderTracks() {
   const list = document.getElementById('track-list');
+  const filterEl = document.getElementById('track-filter');
+  const sortEl = document.getElementById('track-sort');
+  const filter = filterEl ? filterEl.value.trim().toLowerCase() : '';
+  const sortMode = sortEl ? sortEl.value : 'added';
+
   document.getElementById('tracks-stats').innerHTML = `
     <div class="stat"><strong>${tracks.length}</strong> tracks</div>
     <div class="stat">Print fylder <strong>${Math.ceil(tracks.length / 12)}</strong> A4-ark (× 2 for duplex)</div>
@@ -853,7 +949,33 @@ function renderTracks() {
     list.innerHTML = '<div class="empty-state">Ingen tracks endnu — søg ovenfor og tilføj nogle</div>';
     return;
   }
-  list.innerHTML = tracks.map(t => `
+
+  // Apply filter first (if any)
+  let displayTracks = tracks;
+  if (filter) {
+    displayTracks = tracks.filter(t =>
+      (t.title || '').toLowerCase().includes(filter) ||
+      (t.artist || '').toLowerCase().includes(filter) ||
+      (t.album || '').toLowerCase().includes(filter) ||
+      String(t.year || '').includes(filter)
+    );
+  }
+
+  // Apply sort
+  const byYear = (a, b) => (a.year || 0) - (b.year || 0);
+  const byText = (key) => (a, b) => (a[key] || '').localeCompare(b[key] || '', 'da');
+  if (sortMode === 'year-asc')       displayTracks = [...displayTracks].sort(byYear);
+  else if (sortMode === 'year-desc') displayTracks = [...displayTracks].sort((a, b) => byYear(b, a));
+  else if (sortMode === 'artist')    displayTracks = [...displayTracks].sort(byText('artist'));
+  else if (sortMode === 'title')     displayTracks = [...displayTracks].sort(byText('title'));
+  // 'added' = native order from DB (which is added_at DESC)
+
+  if (displayTracks.length === 0) {
+    list.innerHTML = `<div class="empty-state">Ingen tracks matcher "${escapeHtml(filter)}"</div>`;
+    return;
+  }
+
+  list.innerHTML = displayTracks.map(t => `
     <div class="track-row" data-track-id="${t.id}">
       <img src="${t.cover_url || ''}" onerror="this.style.visibility='hidden'">
       <div class="track-info">
