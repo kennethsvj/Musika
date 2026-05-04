@@ -1,0 +1,1359 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Musika – Digital</title>
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Musika Digital">
+<meta name="theme-color" content="#0a0a0f">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #0a0a0f; --panel: #15151f; --panel-light: #1f1f2e; --border: #2a2a3a;
+    --text: #e8e8f0; --muted: #8080a0; --accent: #ff3864; --accent-2: #00d4ff;
+    --success: #00d97e; --warning: #ff9500;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    background-image: radial-gradient(circle at 20% 0%, rgba(255,56,100,0.08) 0%, transparent 50%),
+                      radial-gradient(circle at 80% 100%, rgba(0,212,255,0.06) 0%, transparent 50%);
+    color: var(--text); min-height: 100vh; padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  @supports (padding: max(0px)) {
+    body {
+      padding-top: max(16px, env(safe-area-inset-top));
+      padding-bottom: max(16px, env(safe-area-inset-bottom));
+      padding-left: max(16px, env(safe-area-inset-left));
+      padding-right: max(16px, env(safe-area-inset-right));
+    }
+  }
+  .app { max-width: 480px; margin: 0 auto; }
+
+  h1 { font-size: 24px; margin: 0 0 4px; font-weight: 800; }
+  h1 span {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; color: transparent;
+  }
+  h2 { margin: 0; font-weight: 700; }
+  .subtitle { color: var(--muted); margin: 0 0 18px; font-size: 13px; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+
+  label { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 6px; font-weight: 700; }
+  input, select {
+    width: 100%; background: var(--panel-light); border: 1px solid var(--border);
+    color: var(--text); padding: 12px 14px; border-radius: 10px; font-size: 15px;
+    font-family: inherit; outline: none;
+  }
+  input:focus, select:focus { border-color: var(--accent-2); }
+
+  button {
+    width: 100%; background: var(--accent); color: white;
+    border: none; padding: 14px; border-radius: 10px; font-size: 15px;
+    font-weight: 700; cursor: pointer; font-family: inherit;
+    box-shadow: 0 2px 8px rgba(255,56,100,0.2);
+  }
+  button:active { transform: scale(0.98); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  button.secondary { background: var(--panel-light); border: 1px solid var(--border); color: var(--text); box-shadow: none; }
+  button.danger { background: transparent; border: 1px solid var(--accent); color: var(--accent); box-shadow: none; }
+
+  .hidden { display: none !important; }
+
+  /* ============ JOIN CODE INPUT ============ */
+  .code-input-wrap {
+    display: flex; gap: 6px; justify-content: center;
+  }
+  .code-input-wrap input {
+    width: 50px; height: 60px; text-align: center;
+    font-size: 28px; font-weight: 800; padding: 0;
+    text-transform: uppercase;
+  }
+
+  /* ============ GAME CODE DISPLAY (host view) ============ */
+  .game-code {
+    text-align: center; font-size: 48px; font-weight: 900;
+    letter-spacing: 8px; color: var(--accent-2);
+    margin: 12px 0; font-variant-numeric: tabular-nums;
+  }
+
+  /* ============ PLAYER LIST (lobby) ============ */
+  .players-grid {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .player-row {
+    background: var(--panel-light); padding: 10px 14px;
+    border-radius: 8px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .player-row.is-me { border: 1px solid var(--accent-2); }
+  .player-row.is-host::after { content: '🎵'; }
+  .player-name { font-weight: 600; }
+  .player-meta { color: var(--muted); font-size: 12px; }
+
+  /* ============ TURN BANNER ============ */
+  .turn-banner {
+    background: linear-gradient(135deg, rgba(255,56,100,0.15), rgba(0,212,255,0.15));
+    border: 1px solid var(--accent-2);
+    padding: 14px; border-radius: 12px; text-align: center;
+    margin-bottom: 14px;
+  }
+  .turn-banner .label { font-size: 11px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; }
+  .turn-banner .name { font-size: 22px; font-weight: 800; margin-top: 2px; color: var(--accent-2); }
+  .turn-banner.my-turn { border-color: var(--accent); }
+  .turn-banner.my-turn .name { color: var(--accent); }
+  .turn-banner.my-turn::before {
+    content: '👋 Det er dig!'; display: block;
+    font-size: 12px; color: var(--accent); font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  /* ============ DRAW CARD BUTTON (active turn) ============ */
+  .draw-btn {
+    width: 100%; padding: 32px 20px;
+    background: linear-gradient(135deg, var(--accent), #e02850);
+    border: none; border-radius: 14px;
+    color: white; font-size: 18px; font-weight: 800;
+    letter-spacing: 1px; cursor: pointer;
+    box-shadow: 0 6px 24px rgba(255,56,100,0.35);
+    margin-bottom: 14px;
+  }
+
+  /* ============ PHASE: LISTENING ============ */
+  .listening-panel {
+    text-align: center; padding: 30px 20px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; margin-bottom: 14px;
+  }
+  .listening-panel .vinyl {
+    width: 120px; height: 120px; margin: 0 auto 18px;
+    border-radius: 50%; position: relative;
+    background: radial-gradient(circle at center, #000 0%, #000 12%, #ff3864 12%, #ff3864 14%, #000 14%, #000 100%);
+    animation: vinylRotate 3s linear infinite;
+    box-shadow: 0 8px 32px rgba(255,56,100,0.2);
+  }
+  .listening-panel .vinyl::after {
+    content: ''; position: absolute; inset: 50% auto auto 50%;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent-2); transform: translate(-50%, -50%);
+  }
+  @keyframes vinylRotate { to { transform: rotate(360deg); } }
+  .listening-panel .label {
+    font-size: 13px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 2px; margin-bottom: 8px;
+  }
+  .listening-panel .player-name-big { font-size: 22px; font-weight: 800; color: var(--accent-2); }
+
+  /* ============ PHASE: PLACING (active player gives a guess range) ============ */
+  .place-panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px; margin-bottom: 14px;
+  }
+  .place-panel h2 { font-size: 16px; margin-bottom: 12px; }
+  .place-row {
+    display: flex; gap: 8px; align-items: center; margin: 10px 0;
+  }
+  .place-row label {
+    flex: 0 0 60px; margin: 0; font-size: 13px;
+    text-transform: none; letter-spacing: 0;
+  }
+  .place-row input { flex: 1; }
+
+  /* ============ PHASE: REVEAL ============ */
+  .reveal-card {
+    background: linear-gradient(135deg, #0a1a2a 0%, #1a0a2a 100%);
+    border: 2px solid var(--accent-2); border-radius: 16px;
+    padding: 24px 18px; text-align: center; margin-bottom: 14px;
+    position: relative; overflow: hidden;
+  }
+  .reveal-card.correct { border-color: var(--success); }
+  .reveal-card.incorrect { border-color: var(--accent); }
+  .reveal-card .verdict {
+    font-size: 12px; font-weight: 800; letter-spacing: 3px;
+    text-transform: uppercase; margin-bottom: 12px;
+  }
+  .reveal-card.correct .verdict { color: var(--success); }
+  .reveal-card.incorrect .verdict { color: var(--accent); }
+  .reveal-card .year-big {
+    font-size: 56px; font-weight: 900; margin: 8px 0;
+    color: var(--accent-2);
+  }
+  .reveal-card .artist { font-weight: 700; font-size: 15px; }
+  .reveal-card .title { color: var(--muted); font-size: 14px; font-style: italic; margin-top: 4px; }
+
+  /* ============ TOAST ============ */
+  .toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-200%);
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 12px 20px; border-radius: 10px; z-index: 9999;
+    transition: transform 0.3s; max-width: 90vw;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.error { border-color: var(--accent); }
+  .toast.success { border-color: var(--success); }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ START SCREEN ============ -->
+  <div id="start-screen">
+    <h1>🎵 <span>Musika</span> Digital</h1>
+    <p class="subtitle">Spil online med dine venner</p>
+
+    <div class="panel">
+      <label>Dit navn</label>
+      <input id="my-name" type="text" placeholder="fx Anne" maxlength="20">
+
+      <button style="margin-top:14px;" onclick="goCreate()">Opret nyt spil</button>
+      <button class="secondary" style="margin-top:8px;" onclick="goJoin()">Tilslut spil</button>
+    </div>
+  </div>
+
+  <!-- ============ JOIN SCREEN (enter code) ============ -->
+  <div id="join-screen" class="hidden">
+    <h1>Tilslut spil</h1>
+    <p class="subtitle">Indtast den 4-bogstavers kode</p>
+
+    <div class="panel">
+      <div class="code-input-wrap">
+        <input type="text" maxlength="1" class="code-cell" data-idx="0" autocomplete="off">
+        <input type="text" maxlength="1" class="code-cell" data-idx="1" autocomplete="off">
+        <input type="text" maxlength="1" class="code-cell" data-idx="2" autocomplete="off">
+        <input type="text" maxlength="1" class="code-cell" data-idx="3" autocomplete="off">
+      </div>
+      <button style="margin-top:18px;" onclick="joinByCode()">Tilslut</button>
+      <button class="secondary" style="margin-top:8px;" onclick="goStart()">Tilbage</button>
+    </div>
+  </div>
+
+  <!-- ============ CREATE SCREEN (host setup) ============ -->
+  <div id="create-screen" class="hidden">
+    <h1>Opret spil</h1>
+    <p class="subtitle">Vælg playliste og opret koden</p>
+
+    <div class="panel">
+      <label>Playliste</label>
+      <select id="playlist-select"></select>
+
+      <p style="font-size:12px; color:var(--muted); margin-top:12px; line-height:1.5;">
+        Du skal være logget ind via host-siden for at oprette et digitalt spil.
+        Andre spillere joiner med kode (uden login).
+      </p>
+
+      <button style="margin-top:14px;" onclick="createGame()">Opret spil</button>
+      <button class="secondary" style="margin-top:8px;" onclick="goStart()">Tilbage</button>
+    </div>
+  </div>
+
+  <!-- ============ LOBBY (waiting for players) ============ -->
+  <div id="lobby-screen" class="hidden">
+    <h1>Venter på spillere</h1>
+
+    <div class="panel">
+      <label>Del koden med dine venner</label>
+      <div class="game-code" id="lobby-code">----</div>
+      <p style="text-align:center; color:var(--muted); font-size:12px; margin: 0;">
+        De skal åbne <strong id="lobby-url" style="color:var(--accent-2);"></strong> og indtaste koden
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2 style="font-size:14px; margin-bottom:10px;">Spillere (<span id="lobby-count">0</span>)</h2>
+      <div class="players-grid" id="lobby-players"></div>
+    </div>
+
+    <div class="panel" id="host-controls">
+      <label>Musik afspilles via</label>
+      <select id="music-device">
+        <option value="__HOST_BROWSER__">📱 Min telefon (browser)</option>
+      </select>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="secondary" style="flex:1; padding:10px; font-size:12px;" onclick="refreshDevices()">↻ Opdatér</button>
+        <button class="secondary" style="flex:1; padding:10px; font-size:12px;" onclick="testDevice()">🔊 Test</button>
+      </div>
+      <p style="font-size:11px; color:var(--muted); margin-top:8px; line-height:1.5;">
+        Vælg en delt enhed alle kan høre. Tryk "🔊 Test" for at aktivere afspilningen — vigtigt på iPhone.
+        Musikken afspilles fra den telefon der opretter spillet.
+      </p>
+
+      <button style="margin-top:14px;" id="start-btn" onclick="startDigitalGame()">Start spil</button>
+      <button class="danger" style="margin-top:8px;" onclick="leaveLobby()">Annullér</button>
+    </div>
+
+    <div class="panel" id="player-waiting" class="hidden">
+      <p style="text-align:center; color:var(--muted); font-size:13px;">
+        Vent indtil host starter spillet...
+      </p>
+      <button class="danger" style="margin-top:12px;" onclick="leaveLobby()">Forlad spil</button>
+    </div>
+  </div>
+
+  <!-- ============ ACTIVE GAME ============ -->
+  <div id="game-screen" class="hidden">
+
+    <div class="turn-banner" id="turn-banner">
+      <div class="label">Nu spiller</div>
+      <div class="name" id="turn-player-name">—</div>
+    </div>
+
+    <!-- Phase: DRAW (active player can draw a card) -->
+    <div id="phase-draw" class="hidden">
+      <button class="draw-btn" onclick="drawCard()">🎲 Træk et kort</button>
+      <p style="text-align:center; color:var(--muted); font-size:13px;">
+        Tryk for at trække en tilfældig sang fra playlisten
+      </p>
+    </div>
+
+    <!-- Phase: WAITING (other players wait for active to draw) -->
+    <div id="phase-waiting" class="hidden">
+      <div class="listening-panel">
+        <div class="vinyl"></div>
+        <div class="label">Venter på</div>
+        <div class="player-name-big" id="waiting-for"></div>
+        <div style="margin-top:14px; color:var(--muted); font-size:13px;">at trække et kort</div>
+      </div>
+    </div>
+
+    <!-- Phase: LISTENING (a card has been drawn, music is playing) -->
+    <div id="phase-listening" class="hidden">
+      <div class="listening-panel">
+        <div class="vinyl"></div>
+        <div class="label">🎵 Lytter</div>
+        <div class="player-name-big" id="listening-active"></div>
+        <div style="margin-top:14px; color:var(--muted); font-size:13px;">
+          gætter hvilket år sangen er fra
+        </div>
+      </div>
+
+      <!-- Active player gets the placement form -->
+      <div id="active-placement" class="hidden">
+        <div class="place-panel">
+          <h2>Hvor placerer du kortet?</h2>
+          <p style="color:var(--muted); font-size:13px; margin-bottom:14px;">
+            Gæt sangens årstal (eller giv et interval)
+          </p>
+          <div class="place-row">
+            <label>Tidligst:</label>
+            <input id="guess-min" type="number" min="1900" max="2100" placeholder="fx 1985">
+          </div>
+          <div class="place-row">
+            <label>Senest:</label>
+            <input id="guess-max" type="number" min="1900" max="2100" placeholder="fx 1990">
+          </div>
+          <p style="font-size:11px; color:var(--muted); margin-top:6px;">
+            Indtast samme år begge steder hvis du er sikker. Større interval = nemmere at få ret.
+          </p>
+          <button style="margin-top:14px;" onclick="submitGuess()">Indsend gæt</button>
+        </div>
+      </div>
+
+      <!-- Other players just wait -->
+      <div id="other-waiting" class="hidden">
+        <p style="text-align:center; color:var(--muted); font-size:13px; margin-top:14px;">
+          Venter på at <strong id="other-waiting-name"></strong> placerer kortet...
+        </p>
+      </div>
+    </div>
+
+    <!-- Phase: REVEAL -->
+    <div id="phase-reveal" class="hidden">
+      <div class="reveal-card" id="reveal-card">
+        <div class="verdict" id="reveal-verdict">RESULTAT</div>
+        <div class="year-big" id="reveal-year">—</div>
+        <div class="artist" id="reveal-artist">—</div>
+        <div class="title" id="reveal-title">—</div>
+      </div>
+      <div id="host-next-controls" class="hidden">
+        <button onclick="nextTurn()">Næste tur →</button>
+      </div>
+      <div id="player-next-waiting" class="hidden">
+        <p style="text-align:center; color:var(--muted); font-size:13px;">
+          Venter på at host starter næste tur...
+        </p>
+      </div>
+    </div>
+
+    <!-- Standings (always visible during active game) -->
+    <div class="panel">
+      <h2 style="font-size:14px; margin-bottom:10px;">Stilling</h2>
+      <div class="players-grid" id="game-players"></div>
+    </div>
+
+    <div class="panel">
+      <button class="danger" onclick="quitGame()">Forlad spil</button>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// ============================================================
+// CONFIG
+// ============================================================
+const SUPABASE_URL = 'https://emhuwjlkfwwapyhmnirq.supabase.co';
+const SUPABASE_ANON_KEY = 'PASTE_YOUR_ANON_KEY_HERE';
+const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ============================================================
+// STATE
+// ============================================================
+const STATE = {
+  myName: '',
+  myPlayerId: null,    // Our player row in this game
+  game: null,          // Full game row from DB
+  players: [],         // All players in game
+  isHost: false,
+  realtimeChannel: null,
+};
+
+// Persist a tiny amount to localStorage so a page refresh during a game
+// doesn't kick the player out
+const LS_KEY = 'tl_digital_v1';
+function saveSession() {
+  if (!STATE.game || !STATE.myPlayerId) return;
+  localStorage.setItem(LS_KEY, JSON.stringify({
+    gameId: STATE.game.id,
+    code: STATE.game.code,
+    myPlayerId: STATE.myPlayerId,
+    myName: STATE.myName,
+    isHost: STATE.isHost,
+  }));
+}
+function loadSession() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null'); }
+  catch(e) { return null; }
+}
+function clearSession() { localStorage.removeItem(LS_KEY); }
+
+// ============================================================
+// SPOTIFY PLAYBACK — Web Playback SDK + Spotify Connect routing
+// Only the "music host" player has these wired up. Other players never load
+// the SDK and never make playback requests.
+// ============================================================
+let webPlayer = null;
+let webPlayerDeviceId = null;
+let webPlayerReady = false;
+let sdkScriptLoaded = false;
+let sdkApiReady = false;
+let sdkConnectAttempted = false;
+let activeDeviceId = null;
+let spotifyToken = null;       // {access_token, expires_at, refresh_token}
+const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+// Load Spotify token from spotify_tokens table (host's account is shared)
+async function loadSpotifyToken() {
+  const { data: { session } } = await supa.auth.getSession();
+  if (!session) return null;
+  const { data: tok } = await supa.from('spotify_tokens')
+    .select('*').eq('user_id', session.user.id).maybeSingle();
+  if (tok) {
+    spotifyToken = { ...tok, expires_at: new Date(tok.expires_at) };
+  }
+  return spotifyToken;
+}
+
+// For non-host players: fetch token from a different mechanism.
+// In digital mode, the music host is logged in. Guest players don't have a Spotify token
+// of their own. So we only call this when we KNOW we're the music host.
+async function getValidSpotifyToken() {
+  if (!spotifyToken) await loadSpotifyToken();
+  if (!spotifyToken) return null;
+  // Refresh if within 60s of expiry
+  if (spotifyToken.expires_at.getTime() - Date.now() < 60000) {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/spotify-auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY,
+                   'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ action: 'refresh', refresh_token: spotifyToken.refresh_token }),
+      });
+      const data = await r.json();
+      if (data.access_token) {
+        const newExpires = new Date(Date.now() + (data.expires_in || 3600) * 1000);
+        const newRecord = {
+          access_token: data.access_token,
+          refresh_token: data.refresh_token || spotifyToken.refresh_token,
+          expires_at: newExpires.toISOString(),
+          scope: data.scope || spotifyToken.scope,
+        };
+        const { data: { session } } = await supa.auth.getSession();
+        if (session) {
+          await supa.from('spotify_tokens').update(newRecord).eq('user_id', session.user.id);
+        }
+        spotifyToken = { ...newRecord, expires_at: newExpires };
+      }
+    } catch (e) { console.warn('refresh failed:', e); }
+  }
+  return spotifyToken.access_token;
+}
+
+// Load Spotify SDK script (only on the music host's device)
+function loadSDKScript() {
+  if (sdkScriptLoaded) return;
+  sdkScriptLoaded = true;
+  if (!document.getElementById('spotify-sdk')) {
+    const script = document.createElement('script');
+    script.id = 'spotify-sdk';
+    script.src = 'https://sdk.scdn.co/spotify-player.js';
+    document.body.appendChild(script);
+  }
+  window.onSpotifyWebPlaybackSDKReady = () => {
+    sdkApiReady = true;
+    console.log('Spotify SDK ready (waiting for user gesture to connect)');
+  };
+}
+
+// Connect SDK from a user gesture (required on iOS).
+async function connectSDKFromUserGesture() {
+  if (webPlayerReady) return true;
+  if (sdkConnectAttempted && webPlayer) return false;
+  const token = await getValidSpotifyToken();
+  if (!token) { toast('Ingen Spotify-forbindelse', 'error'); return false; }
+  if (!sdkApiReady) {
+    await new Promise(res => {
+      const start = Date.now();
+      const iv = setInterval(() => {
+        if (sdkApiReady || Date.now() - start > 4000) { clearInterval(iv); res(); }
+      }, 100);
+    });
+    if (!sdkApiReady) { toast('Spotify SDK kunne ikke indlæses', 'error'); return false; }
+  }
+  sdkConnectAttempted = true;
+  webPlayer = new Spotify.Player({
+    name: 'Musika Digital (' + (isIOS ? 'iPhone' : isMobile ? 'Telefon' : 'Browser') + ')',
+    getOAuthToken: async cb => { cb(await getValidSpotifyToken()); },
+    volume: 1.0,
+  });
+  webPlayer.addListener('ready', ({ device_id }) => {
+    webPlayerDeviceId = device_id;
+    webPlayerReady = true;
+    console.log('SDK ready — device_id:', device_id);
+    refreshDevices();
+  });
+  webPlayer.addListener('not_ready', () => { webPlayerReady = false; });
+  webPlayer.addListener('initialization_error', ({ message }) => {
+    toast('Afspiller-fejl: ' + message, 'error');
+  });
+  webPlayer.addListener('authentication_error', ({ message }) => {
+    toast('Login udløbet — genforbind Spotify', 'error');
+  });
+  webPlayer.addListener('account_error', () => {
+    toast('Spotify Premium kræves', 'error');
+  });
+  const ok = await webPlayer.connect();
+  return ok;
+}
+
+async function disconnectSDKIfActive() {
+  if (!webPlayer) return;
+  try {
+    await webPlayer.pause().catch(() => {});
+    await webPlayer.disconnect();
+  } catch (e) {}
+  webPlayer = null;
+  webPlayerDeviceId = null;
+  webPlayerReady = false;
+  sdkConnectAttempted = false;
+}
+
+async function transferPlayback(token, deviceId) {
+  const r = await fetch('https://api.spotify.com/v1/me/player', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_ids: [deviceId], play: false }),
+  });
+  return r.ok || r.status === 202 || r.status === 204;
+}
+
+async function transferAndPlay(token, deviceId, spotifyId, isSDK = false) {
+  if (!isSDK) {
+    await transferPlayback(token, deviceId);
+    await new Promise(r => setTimeout(r, 500));
+  }
+  const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uris: [`spotify:track:${spotifyId}`] }),
+  });
+  if (r.ok) return true;
+  console.warn('play failed:', r.status, await r.text().catch(() => ''));
+  return false;
+}
+
+async function resolveTargetDevice(token, selectedValue) {
+  if (selectedValue === '__SDK__' || selectedValue === '__HOST_BROWSER__' || !selectedValue) {
+    if (webPlayerReady && webPlayerDeviceId) return { id: webPlayerDeviceId, isSDK: true };
+    return null;
+  }
+  const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!r.ok) return null;
+  const devices = (await r.json()).devices || [];
+  const device = devices.find(d => d.name === selectedValue);
+  if (!device) return null;
+  return { id: device.id, isSDK: false, name: device.name };
+}
+
+// ============================================================
+// DEVICE PICKER (in lobby, host only)
+// ============================================================
+async function refreshDevices() {
+  const sel = document.getElementById('music-device');
+  if (!sel) return;
+  const token = await getValidSpotifyToken();
+  if (!token) {
+    sel.innerHTML = '<option value="__HOST_BROWSER__">📱 Min telefon (browser) — log ind på host.html først</option>';
+    return;
+  }
+  let devices = [];
+  try {
+    const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (r.ok) devices = (await r.json()).devices || [];
+  } catch (e) {}
+  if (webPlayerDeviceId) devices = devices.filter(d => d.id !== webPlayerDeviceId);
+
+  const sdkLabel = webPlayerReady
+    ? '📱 Min telefon (browser) — klar'
+    : '📱 Min telefon (browser) — tryk Test for at aktivere';
+  const saved = sel.value || '__HOST_BROWSER__';
+  sel.innerHTML = [
+    `<option value="__HOST_BROWSER__" ${saved === '__HOST_BROWSER__' ? 'selected' : ''}>${sdkLabel}</option>`,
+    ...devices.map(d =>
+      `<option value="${escapeHtml(d.name)}" ${d.name === saved ? 'selected' : ''}>🔊 ${escapeHtml(d.name)} (${d.type})</option>`
+    )
+  ].join('');
+}
+
+async function testDevice() {
+  const sel = document.getElementById('music-device');
+  const value = sel?.value || '__HOST_BROWSER__';
+  const wantsSDK = (value === '__HOST_BROWSER__' || value === '__SDK__');
+
+  if (wantsSDK) {
+    if (!webPlayerReady) {
+      toast('Aktiverer afspiller...');
+      loadSDKScript();
+      await connectSDKFromUserGesture();
+      await new Promise(res => {
+        const start = Date.now();
+        const iv = setInterval(() => {
+          if (webPlayerReady || Date.now() - start > 5000) { clearInterval(iv); res(); }
+        }, 100);
+      });
+    }
+  } else if (webPlayerReady) {
+    await disconnectSDKIfActive();
+    await new Promise(r => setTimeout(r, 400));
+  }
+
+  const token = await getValidSpotifyToken();
+  if (!token) return toast('Ingen Spotify-forbindelse', 'error');
+
+  const target = await resolveTargetDevice(token, value);
+  if (!target) return toast('Enhed ikke klar', 'error');
+
+  if (target.isSDK && webPlayer) {
+    try { await webPlayer.activateElement(); } catch(e) {}
+  }
+  const ok = await transferAndPlay(token, target.id, '4uLU6hMCjMI75M1A2tKUQC', target.isSDK);
+  if (ok) {
+    activeDeviceId = target.id;
+    toast(`🎵 Hører du musikken? — stopper om 3s`);
+    setTimeout(async () => {
+      if (target.isSDK && webPlayer) { await webPlayer.pause().catch(() => {}); return; }
+      await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${target.id}`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }, 3000);
+  } else {
+    toast('Test fejlede', 'error');
+  }
+}
+
+// ============================================================
+// PLAY MUSIC — called when "music host" device receives a phase change
+// to 'listening'. Other devices ignore this.
+// ============================================================
+let lastPlayedTrackId = null;
+
+async function maybePlayMusicForCurrentTrack() {
+  // Only the music host plays music
+  if (STATE.game?.music_host_player_id !== STATE.myPlayerId) return;
+
+  const track = STATE.game?.current_track;
+  if (!track || !track.spotify_id) return;
+
+  // Avoid re-playing if we already started this track
+  if (lastPlayedTrackId === track.spotify_id) return;
+  lastPlayedTrackId = track.spotify_id;
+
+  const token = await getValidSpotifyToken();
+  if (!token) { toast('Ingen Spotify-forbindelse', 'error'); return; }
+
+  const value = STATE.game.music_device_name || '__HOST_BROWSER__';
+  const wantsSDK = (value === '__HOST_BROWSER__' || value === '__SDK__');
+
+  // Mode reconciliation
+  if (wantsSDK && !webPlayerReady) {
+    loadSDKScript();
+    await connectSDKFromUserGesture();
+    if (webPlayer) { try { await webPlayer.activateElement(); } catch(e) {} }
+    await new Promise(res => {
+      const start = Date.now();
+      const iv = setInterval(() => {
+        if (webPlayerReady || Date.now() - start > 3000) { clearInterval(iv); res(); }
+      }, 100);
+    });
+  } else if (!wantsSDK && webPlayerReady) {
+    await disconnectSDKIfActive();
+    await new Promise(r => setTimeout(r, 400));
+  }
+
+  const target = await resolveTargetDevice(token, value);
+  if (!target) {
+    toast('Afspilningsenhed ikke klar', 'error');
+    return;
+  }
+
+  if (target.isSDK && webPlayer) {
+    try { await webPlayer.activateElement(); } catch(e) {}
+  }
+
+  const ok = await transferAndPlay(token, target.id, track.spotify_id, target.isSDK);
+  if (ok) activeDeviceId = target.id;
+  else toast('Afspilning fejlede', 'error');
+}
+
+async function stopMusicIfPlaying() {
+  if (STATE.game?.music_host_player_id !== STATE.myPlayerId) return;
+  lastPlayedTrackId = null;
+  if (webPlayer && webPlayerReady && activeDeviceId === webPlayerDeviceId) {
+    try { await webPlayer.pause(); } catch(e) {}
+    return;
+  }
+  const token = await getValidSpotifyToken();
+  if (!token || !activeDeviceId) return;
+  await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${activeDeviceId}`, {
+    method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => {});
+}
+
+// ============================================================
+// SCREEN MANAGEMENT
+// ============================================================
+function show(id) {
+  ['start-screen','join-screen','create-screen','lobby-screen','game-screen']
+    .forEach(s => document.getElementById(s).classList.toggle('hidden', s !== id));
+}
+
+function goStart() { show('start-screen'); }
+
+async function goCreate() {
+  const name = document.getElementById('my-name').value.trim();
+  if (!name) return toast('Skriv dit navn først', 'error');
+  STATE.myName = name;
+
+  // Need to be logged in to create a game (host has access to playlists)
+  const { data: { session } } = await supa.auth.getSession();
+  if (!session) {
+    toast('Du skal være logget ind på host-siden først', 'error');
+    setTimeout(() => location.href = 'host.html', 1200);
+    return;
+  }
+
+  // Load playlists
+  const { data: playlists } = await supa.from('playlists').select('*').order('name');
+  document.getElementById('playlist-select').innerHTML =
+    (playlists || []).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+
+  show('create-screen');
+}
+
+function goJoin() {
+  const name = document.getElementById('my-name').value.trim();
+  if (!name) return toast('Skriv dit navn først', 'error');
+  STATE.myName = name;
+  show('join-screen');
+
+  // Auto-focus + auto-advance through code cells
+  const cells = document.querySelectorAll('.code-cell');
+  cells.forEach((c, i) => {
+    c.value = '';
+    c.oninput = (e) => {
+      c.value = c.value.toUpperCase();
+      if (c.value && i < cells.length - 1) cells[i+1].focus();
+    };
+    c.onkeydown = (e) => {
+      if (e.key === 'Backspace' && !c.value && i > 0) cells[i-1].focus();
+    };
+  });
+  setTimeout(() => cells[0].focus(), 50);
+}
+
+// ============================================================
+// CREATE GAME (host)
+// ============================================================
+function generateCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No 0/O/1/I/L confusion
+  return Array.from({length: 4}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
+async function createGame() {
+  const playlist_id = document.getElementById('playlist-select').value;
+  if (!playlist_id) return toast('Vælg en playliste', 'error');
+
+  const { data: { session } } = await supa.auth.getSession();
+  if (!session) return toast('Login udløbet', 'error');
+
+  // Load all tracks for this playlist into a track_pool
+  const { data: pt, error: ptErr } = await supa.from('playlist_tracks')
+    .select('track:tracks(*)').eq('playlist_id', playlist_id);
+  if (ptErr) return toast(ptErr.message, 'error');
+  const trackPool = (pt || []).map(r => r.track).filter(Boolean);
+  if (trackPool.length < 5) return toast('Playlisten har for få tracks (min. 5)', 'error');
+
+  const code = generateCode();
+  const { data: game, error } = await supa.from('games').insert({
+    code,
+    host_id: session.user.id,
+    playlist_id,
+    mode: 'digital',
+    status: 'lobby',
+    track_pool: trackPool,
+    used_track_ids: [],
+    turn_order: [],
+    turn_index: 0,
+    turn_phase: 'draw',
+    win_points: 10,  // 10 cards in timeline = win
+  }).select().single();
+  if (error) return toast(error.message, 'error');
+
+  // Add ourselves as the host player
+  const { data: player, error: pErr } = await supa.from('players').insert({
+    game_id: game.id,
+    name: STATE.myName,
+    is_host: true,
+    score: 0,
+    timeline: [],
+  }).select().single();
+  if (pErr) return toast(pErr.message, 'error');
+
+  STATE.game = game;
+  STATE.myPlayerId = player.id;
+  STATE.isHost = true;
+  saveSession();
+
+  await enterLobby();
+}
+
+// ============================================================
+// JOIN GAME (player)
+// ============================================================
+async function joinByCode() {
+  const cells = document.querySelectorAll('.code-cell');
+  const code = Array.from(cells).map(c => c.value.trim().toUpperCase()).join('');
+  if (code.length !== 4) return toast('Indtast hele koden', 'error');
+
+  const { data: game, error } = await supa.from('games').select('*')
+    .eq('code', code).eq('mode', 'digital').neq('status', 'finished').maybeSingle();
+  if (error || !game) return toast('Spil ikke fundet', 'error');
+  if (game.status !== 'lobby') return toast('Spillet er allerede i gang', 'error');
+
+  // Add ourselves as a player
+  const { data: player, error: pErr } = await supa.from('players').insert({
+    game_id: game.id,
+    name: STATE.myName,
+    is_host: false,
+    score: 0,
+    timeline: [],
+  }).select().single();
+  if (pErr) return toast(pErr.message, 'error');
+
+  STATE.game = game;
+  STATE.myPlayerId = player.id;
+  STATE.isHost = false;
+  saveSession();
+
+  await enterLobby();
+}
+
+// ============================================================
+// LOBBY
+// ============================================================
+async function enterLobby() {
+  show('lobby-screen');
+  document.getElementById('lobby-code').textContent = STATE.game.code;
+
+  const baseUrl = window.location.href.split('?')[0].replace(/\/[^\/]*$/, '');
+  document.getElementById('lobby-url').textContent =
+    baseUrl.replace(/^https?:\/\//, '') + '/digital';
+
+  // Show host or player view
+  document.getElementById('host-controls').classList.toggle('hidden', !STATE.isHost);
+  document.getElementById('player-waiting').classList.toggle('hidden', STATE.isHost);
+
+  // Music host side: pre-load token and SDK script so they're ready when needed
+  if (STATE.isHost) {
+    await loadSpotifyToken();
+    loadSDKScript();
+    await refreshDevices();
+  }
+
+  await loadPlayers();
+  subscribeToGame();
+}
+
+async function loadPlayers() {
+  const { data } = await supa.from('players').select('*')
+    .eq('game_id', STATE.game.id).order('joined_at');
+  STATE.players = data || [];
+  renderLobbyPlayers();
+  renderGamePlayers();
+}
+
+function renderLobbyPlayers() {
+  const el = document.getElementById('lobby-players');
+  if (!el) return;
+  document.getElementById('lobby-count').textContent = STATE.players.length;
+  if (STATE.players.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted); font-size:13px; text-align:center; padding:8px;">Ingen spillere endnu</div>';
+    return;
+  }
+  el.innerHTML = STATE.players.map(p => `
+    <div class="player-row${p.id === STATE.myPlayerId ? ' is-me' : ''}">
+      <span class="player-name">${escapeHtml(p.name)}${p.is_host ? ' <span class="player-meta">(host)</span>' : ''}</span>
+      <span class="player-meta">${p.id === STATE.myPlayerId ? 'dig' : ''}</span>
+    </div>
+  `).join('');
+}
+
+async function leaveLobby() {
+  if (!confirm('Forlad spillet?')) return;
+  if (STATE.myPlayerId) {
+    await supa.from('players').delete().eq('id', STATE.myPlayerId);
+  }
+  if (STATE.isHost && STATE.game) {
+    // Host leaving = end game
+    await supa.from('games').update({ status: 'finished', finished_at: new Date().toISOString() })
+      .eq('id', STATE.game.id);
+  }
+  unsubscribe();
+  clearSession();
+  STATE.game = null; STATE.myPlayerId = null; STATE.players = []; STATE.isHost = false;
+  show('start-screen');
+}
+
+// ============================================================
+// REALTIME SUBSCRIPTION
+// ============================================================
+function subscribeToGame() {
+  if (STATE.realtimeChannel) {
+    supa.removeChannel(STATE.realtimeChannel);
+  }
+  STATE.realtimeChannel = supa.channel(`game:${STATE.game.id}`)
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'games', filter: `id=eq.${STATE.game.id}` },
+      (payload) => onGameUpdate(payload))
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'players', filter: `game_id=eq.${STATE.game.id}` },
+      (payload) => onPlayersChanged(payload))
+    .subscribe();
+}
+
+function unsubscribe() {
+  if (STATE.realtimeChannel) {
+    supa.removeChannel(STATE.realtimeChannel);
+    STATE.realtimeChannel = null;
+  }
+}
+
+async function onGameUpdate(payload) {
+  if (payload.eventType === 'UPDATE') {
+    const oldStatus = STATE.game.status;
+    const oldPhase = STATE.game.turn_phase;
+    const oldTrack = STATE.game.current_track;
+    STATE.game = payload.new;
+
+    // Status transitions
+    if (oldStatus === 'lobby' && STATE.game.status === 'playing') {
+      enterGame();
+    } else if (STATE.game.status === 'finished') {
+      toast('Spillet er slut', 'success');
+      setTimeout(() => { clearSession(); location.reload(); }, 2000);
+      return;
+    }
+
+    // Phase transitions during game
+    if (STATE.game.status === 'playing') {
+      // Music host: start playing when a new track is set
+      if (STATE.game.turn_phase === 'listening'
+          && STATE.game.current_track
+          && (oldPhase !== 'listening' || oldTrack?.id !== STATE.game.current_track.id)) {
+        maybePlayMusicForCurrentTrack();
+      }
+      // Music host: stop playing when phase moves to reveal or draw
+      if ((STATE.game.turn_phase === 'reveal' || STATE.game.turn_phase === 'draw')
+          && oldPhase === 'listening') {
+        stopMusicIfPlaying();
+      }
+      renderGameUI();
+    }
+  }
+}
+
+async function onPlayersChanged(payload) {
+  await loadPlayers();
+  // If our own player record was deleted (e.g. host kicked us), bail
+  if (!STATE.players.some(p => p.id === STATE.myPlayerId)) {
+    toast('Du er ikke længere i spillet', 'error');
+    setTimeout(() => location.reload(), 1500);
+  }
+}
+
+// ============================================================
+// START GAME (host only)
+// ============================================================
+async function startDigitalGame() {
+  if (!STATE.isHost) return;
+  if (STATE.players.length < 2) {
+    if (!confirm('Du er den eneste spiller. Vil du fortsætte alligevel?')) return;
+  }
+
+  const musicDevice = document.getElementById('music-device').value;
+  const wantsSDK = (musicDevice === '__HOST_BROWSER__' || musicDevice === '__SDK__');
+
+  // CRITICAL: This click is a user gesture. On iOS, we MUST init the SDK now
+  // (not later) if we want to play in-browser audio. Same for activateElement.
+  if (wantsSDK) {
+    if (!webPlayerReady) {
+      toast('Aktiverer afspiller...');
+      loadSDKScript();
+      await connectSDKFromUserGesture();
+      if (webPlayer) { try { await webPlayer.activateElement(); } catch(e) {} }
+      await new Promise(res => {
+        const start = Date.now();
+        const iv = setInterval(() => {
+          if (webPlayerReady || Date.now() - start > 4000) { clearInterval(iv); res(); }
+        }, 100);
+      });
+      if (!webPlayerReady) {
+        toast('Afspilleren kunne ikke aktiveres. Tryk 🔊 Test først.', 'error');
+        return;
+      }
+    }
+  } else if (webPlayerReady) {
+    // External Connect device: free up the browser SDK
+    await disconnectSDKIfActive();
+    await new Promise(r => setTimeout(r, 300));
+    const token = await getValidSpotifyToken();
+    if (token) {
+      const r = await fetch('https://api.spotify.com/v1/me/player/devices', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (r.ok) {
+        const devices = (await r.json()).devices || [];
+        const device = devices.find(d => d.name === musicDevice);
+        if (device) await transferPlayback(token, device.id);
+      }
+    }
+  }
+
+  // Build turn order — randomize for fairness
+  const ids = STATE.players.map(p => p.id);
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+
+  const musicHostPlayerId = STATE.myPlayerId; // For now: host always plays music
+
+  const { error } = await supa.from('games').update({
+    status: 'playing',
+    turn_order: ids,
+    turn_index: 0,
+    turn_phase: 'draw',
+    music_device_name: musicDevice,
+    music_host_player_id: musicHostPlayerId,
+  }).eq('id', STATE.game.id);
+  if (error) toast(error.message, 'error');
+}
+
+function enterGame() {
+  show('game-screen');
+  renderGameUI();
+}
+
+// ============================================================
+// RENDER GAME UI based on phase + whose turn
+// ============================================================
+function renderGameUI() {
+  const turnOrder = STATE.game.turn_order || [];
+  const turnIdx = STATE.game.turn_index || 0;
+  const activeId = turnOrder[turnIdx];
+  const activePlayer = STATE.players.find(p => p.id === activeId);
+  const isMyTurn = activeId === STATE.myPlayerId;
+  const phase = STATE.game.turn_phase;
+
+  // Turn banner
+  const banner = document.getElementById('turn-banner');
+  banner.classList.toggle('my-turn', isMyTurn);
+  document.getElementById('turn-player-name').textContent =
+    activePlayer ? activePlayer.name : '—';
+
+  // Hide all phases first
+  ['phase-draw','phase-waiting','phase-listening','phase-reveal']
+    .forEach(id => document.getElementById(id).classList.add('hidden'));
+
+  if (phase === 'draw') {
+    if (isMyTurn) {
+      document.getElementById('phase-draw').classList.remove('hidden');
+    } else {
+      document.getElementById('phase-waiting').classList.remove('hidden');
+      document.getElementById('waiting-for').textContent = activePlayer ? activePlayer.name : '—';
+    }
+  } else if (phase === 'listening' || phase === 'placing') {
+    document.getElementById('phase-listening').classList.remove('hidden');
+    document.getElementById('listening-active').textContent = activePlayer ? activePlayer.name : '—';
+    if (isMyTurn) {
+      document.getElementById('active-placement').classList.remove('hidden');
+      document.getElementById('other-waiting').classList.add('hidden');
+    } else {
+      document.getElementById('active-placement').classList.add('hidden');
+      document.getElementById('other-waiting').classList.remove('hidden');
+      document.getElementById('other-waiting-name').textContent = activePlayer ? activePlayer.name : '—';
+    }
+  } else if (phase === 'reveal') {
+    document.getElementById('phase-reveal').classList.remove('hidden');
+    renderReveal();
+    document.getElementById('host-next-controls').classList.toggle('hidden', !STATE.isHost);
+    document.getElementById('player-next-waiting').classList.toggle('hidden', STATE.isHost);
+  }
+
+  renderGamePlayers();
+}
+
+function renderGamePlayers() {
+  const el = document.getElementById('game-players');
+  if (!el) return;
+  const turnOrder = STATE.game?.turn_order || [];
+  const turnIdx = STATE.game?.turn_index || 0;
+  const activeId = turnOrder[turnIdx];
+
+  // Sort by score desc
+  const sorted = [...STATE.players].sort((a, b) => b.score - a.score);
+  el.innerHTML = sorted.map(p => `
+    <div class="player-row${p.id === STATE.myPlayerId ? ' is-me' : ''}${p.id === activeId ? ' is-active' : ''}">
+      <span class="player-name">${p.id === activeId ? '▶ ' : ''}${escapeHtml(p.name)}</span>
+      <span class="player-meta">${p.score} kort</span>
+    </div>
+  `).join('');
+}
+
+// ============================================================
+// PHASE: DRAW (active player)
+// ============================================================
+async function drawCard() {
+  if (!STATE.game) return;
+
+  const pool = STATE.game.track_pool || [];
+  const usedIds = STATE.game.used_track_ids || [];
+  const available = pool.filter(t => !usedIds.includes(t.id));
+
+  if (available.length === 0) {
+    toast('Alle sange er brugt — spillet slutter');
+    await endGame();
+    return;
+  }
+
+  const track = available[Math.floor(Math.random() * available.length)];
+
+  // Set as current_track + advance phase. The realtime broadcast will trigger
+  // music host's device to actually start playing via maybePlayMusicForCurrentTrack().
+  await supa.from('games').update({
+    current_track: track,
+    used_track_ids: [...usedIds, track.id],
+    turn_phase: 'listening',
+  }).eq('id', STATE.game.id);
+}
+
+// ============================================================
+// PHASE: PLACING — submit a guess
+// ============================================================
+async function submitGuess() {
+  const guessMin = parseInt(document.getElementById('guess-min').value, 10);
+  const guessMax = parseInt(document.getElementById('guess-max').value, 10);
+  if (!guessMin || !guessMax) return toast('Indtast et årstal', 'error');
+  if (guessMax < guessMin) return toast('Senest skal være ≥ Tidligst', 'error');
+
+  // Check correctness
+  const trackYear = STATE.game.current_track?.year;
+  const isCorrect = trackYear >= guessMin && trackYear <= guessMax;
+
+  // If correct, increment score (= cards in timeline) for active player
+  if (isCorrect) {
+    const me = STATE.players.find(p => p.id === STATE.myPlayerId);
+    if (me) {
+      const newTimeline = [...(me.timeline || []), {
+        track_id: STATE.game.current_track.id,
+        year: trackYear,
+        title: STATE.game.current_track.title,
+        artist: STATE.game.current_track.artist,
+      }].sort((a, b) => a.year - b.year);
+      await supa.from('players').update({
+        score: me.score + 1,
+        timeline: newTimeline,
+      }).eq('id', me.id);
+    }
+  }
+
+  // Save guess + advance to reveal
+  await supa.from('games').update({
+    turn_phase: 'reveal',
+  }).eq('id', STATE.game.id);
+
+  // We rely on realtime to repaint UI; record guess locally for the reveal
+  STATE._lastGuess = { min: guessMin, max: guessMax, isCorrect };
+}
+
+// ============================================================
+// PHASE: REVEAL
+// ============================================================
+function renderReveal() {
+  const t = STATE.game.current_track;
+  if (!t) return;
+  const card = document.getElementById('reveal-card');
+
+  // We may not know if it was correct unless we tracked the guess locally
+  // (other players see the result based on whether the active player got a point)
+  const wasCorrect = STATE._lastGuess?.isCorrect ?? null;
+
+  if (wasCorrect === true) {
+    card.className = 'reveal-card correct';
+    document.getElementById('reveal-verdict').textContent = '✓ KORREKT';
+  } else if (wasCorrect === false) {
+    card.className = 'reveal-card incorrect';
+    document.getElementById('reveal-verdict').textContent = '✗ FORKERT';
+  } else {
+    card.className = 'reveal-card';
+    document.getElementById('reveal-verdict').textContent = 'RESULTAT';
+  }
+
+  document.getElementById('reveal-year').textContent = t.year;
+  document.getElementById('reveal-artist').textContent = t.artist;
+  document.getElementById('reveal-title').textContent = t.title;
+}
+
+// ============================================================
+// NEXT TURN (host only)
+// ============================================================
+async function nextTurn() {
+  if (!STATE.isHost) return;
+
+  const turnOrder = STATE.game.turn_order || [];
+  if (turnOrder.length === 0) return;
+  const newIdx = (STATE.game.turn_index + 1) % turnOrder.length;
+
+  // Check win condition
+  const winner = STATE.players.find(p => p.score >= (STATE.game.win_points || 10));
+  if (winner) {
+    return endGame();
+  }
+
+  await supa.from('games').update({
+    turn_index: newIdx,
+    turn_phase: 'draw',
+    current_track: null,
+  }).eq('id', STATE.game.id);
+
+  STATE._lastGuess = null;
+}
+
+async function endGame() {
+  await supa.from('games').update({
+    status: 'finished',
+    finished_at: new Date().toISOString(),
+  }).eq('id', STATE.game.id);
+}
+
+async function quitGame() {
+  if (!confirm('Forlad spillet? Du kan ikke komme tilbage.')) return;
+  if (STATE.myPlayerId) {
+    await supa.from('players').delete().eq('id', STATE.myPlayerId);
+  }
+  unsubscribe();
+  clearSession();
+  location.reload();
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'toast show' + (type ? ' ' + type : '');
+  setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+// ============================================================
+// AUTO-RESUME
+// ============================================================
+async function tryAutoResume() {
+  const saved = loadSession();
+  if (!saved) return;
+  // Try to fetch the game
+  const { data: game } = await supa.from('games').select('*')
+    .eq('id', saved.gameId).maybeSingle();
+  if (!game || game.status === 'finished') {
+    clearSession();
+    return;
+  }
+  // Verify our player still exists
+  const { data: player } = await supa.from('players').select('*')
+    .eq('id', saved.myPlayerId).maybeSingle();
+  if (!player) {
+    clearSession();
+    return;
+  }
+  // Resume!
+  STATE.game = game;
+  STATE.myPlayerId = saved.myPlayerId;
+  STATE.myName = saved.myName;
+  STATE.isHost = saved.isHost;
+  await loadPlayers();
+  subscribeToGame();
+  if (game.status === 'lobby') enterLobby();
+  else if (game.status === 'playing') enterGame();
+}
+
+// Boot
+tryAutoResume();
+</script>
+</body>
+</html>
