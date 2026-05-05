@@ -1255,7 +1255,57 @@ function subscribeToGame() {
     .on('postgres_changes',
       { event: '*', schema: 'public', table: 'players', filter: `game_id=eq.${STATE.game.id}` },
       (payload) => onPlayersChanged(payload))
+    // ============================================================
+    // BROADCAST CHANNEL — guests send action requests, host executes them
+    // This bypasses RLS issues since only the host writes to the DB.
+    // ============================================================
+    .on('broadcast', { event: 'request_draw' }, (msg) => {
+      // Only the host responds to draw requests
+      if (STATE.isHost) hostHandleDrawRequest(msg.payload);
+    })
+    .on('broadcast', { event: 'request_placement' }, (msg) => {
+      if (STATE.isHost) hostHandlePlacementRequest(msg.payload);
+    })
     .subscribe();
+}
+
+// ============================================================
+// HOST-SIDE BROADCAST HANDLERS
+// ============================================================
+async function hostHandleDrawRequest(payload) {
+  const { fromPlayerId } = payload || {};
+  // Make sure the requester is actually the active player (security)
+  const turnOrder = STATE.game?.turn_order || [];
+  const turnIdx = STATE.game?.turn_index || 0;
+  const activeId = turnOrder[turnIdx];
+  if (fromPlayerId !== activeId) {
+    console.warn('Ignoring draw request from non-active player:', fromPlayerId);
+    return;
+  }
+  // Only proceed if we're in the draw phase (avoid double-draws from realtime races)
+  if (STATE.game?.turn_phase !== 'draw') {
+    console.warn('Ignoring draw request — not in draw phase');
+    return;
+  }
+  // Reuse the same draw logic as if host were drawing themselves
+  await performDraw();
+}
+
+async function hostHandlePlacementRequest(payload) {
+  const { fromPlayerId, beforeYear, afterYear } = payload || {};
+  const turnOrder = STATE.game?.turn_order || [];
+  const turnIdx = STATE.game?.turn_index || 0;
+  const activeId = turnOrder[turnIdx];
+  if (fromPlayerId !== activeId) {
+    console.warn('Ignoring placement from non-active player');
+    return;
+  }
+  if (STATE.game?.turn_phase !== 'listening') {
+    console.warn('Ignoring placement — not in listening phase');
+    return;
+  }
+  // Host performs the actual placement on behalf of the active player
+  await performPlacement(fromPlayerId, beforeYear, afterYear);
 }
 
 function unsubscribe() {
@@ -1536,6 +1586,11 @@ function renderTimelines() {
 // ============================================================
 // PHASE: DRAW (active player)
 // ============================================================
+// ============================================================
+// DRAW CARD — entry point called by the active player tap
+// If the active player is the host: do the draw directly.
+// If the active player is a guest: broadcast a request to the host.
+// ============================================================
 async function drawCard() {
   if (!STATE.game) return;
 
@@ -1543,13 +1598,44 @@ async function drawCard() {
   const drawPhase = document.getElementById('phase-draw');
   if (drawPhase) drawPhase.classList.add('hidden');
 
+  if (STATE.isHost) {
+    // Host can draw directly
+    await performDraw();
+  } else {
+    // Guest broadcasts the request; host will pick it up and execute
+    if (!STATE.realtimeChannel) {
+      toast('Forbindelsen er afbrudt', 'error');
+      if (drawPhase) drawPhase.classList.remove('hidden');
+      return;
+    }
+    await STATE.realtimeChannel.send({
+      type: 'broadcast',
+      event: 'request_draw',
+      payload: { fromPlayerId: STATE.myPlayerId },
+    });
+    // We don't await any response — the realtime broadcast of the games-table update
+    // will trigger our UI re-render to listening phase. If after 5s nothing happened,
+    // bring the button back so user can retry.
+    setTimeout(() => {
+      if (STATE.game?.turn_phase === 'draw' && drawPhase) {
+        drawPhase.classList.remove('hidden');
+        toast('Host reagerede ikke — prøv igen', 'error');
+      }
+    }, 5000);
+  }
+}
+
+// Host-only: actually perform the draw and update the database
+async function performDraw() {
+  if (!STATE.isHost) return;
+  if (!STATE.game) return;
+
   const pool = STATE.game.track_pool || [];
   const usedIds = STATE.game.used_track_ids || [];
   const available = pool.filter(t => !usedIds.includes(t.id));
 
   if (pool.length === 0) {
-    if (drawPhase) drawPhase.classList.remove('hidden');
-    toast('Spillets track-pool er tom — kør migrationen og opret nyt spil', 'error');
+    toast('Spillets track-pool er tom', 'error');
     return;
   }
   if (available.length === 0) {
@@ -1560,31 +1646,18 @@ async function drawCard() {
 
   const track = available[Math.floor(Math.random() * available.length)];
 
-  // Verify the update actually persisted by requesting the row back.
-  // If RLS blocks the write, .select() returns no rows and we know to fall back.
-  const { data: updated, error } = await supa.from('games').update({
+  const { error } = await supa.from('games').update({
     current_track: track,
     used_track_ids: [...usedIds, track.id],
     turn_phase: 'listening',
-  }).eq('id', STATE.game.id).select();
+  }).eq('id', STATE.game.id);
 
   if (error) {
-    console.error('drawCard update error:', error);
-    if (drawPhase) drawPhase.classList.remove('hidden');
+    console.error('performDraw error:', error);
     toast('Fejl: ' + error.message, 'error');
     return;
   }
-
-  if (!updated || updated.length === 0) {
-    // RLS silently rejected the write — most likely cause for guest players.
-    console.warn('drawCard: update succeeded but returned 0 rows (likely RLS).');
-    if (drawPhase) drawPhase.classList.remove('hidden');
-    alert('Spillet kunne ikke opdateres.\n\nDette skyldes som regel at databasens sikkerhedsregler (RLS) ikke tillader gæst-spillere at opdatere spillet. Host skal køre fix-rls-for-digital.sql i Supabase.');
-    return;
-  }
-
-  // Success — realtime will broadcast and update the UI for everyone
-  console.log('drawCard: track set successfully', track.title);
+  console.log('performDraw: drew', track.title);
 }
 
 // ============================================================
@@ -1798,21 +1871,43 @@ async function onDragEnd(e) {
 }
 
 // Calculate if placement is correct, persist results, advance phase to reveal
+// ============================================================
+// SUBMIT PLACEMENT — entry point called by drag-and-drop on release
+// Same pattern as drawCard: host does it directly, guest broadcasts.
+// ============================================================
 async function submitPlacement(beforeYear, afterYear) {
+  if (STATE.isHost) {
+    await performPlacement(STATE.myPlayerId, beforeYear, afterYear);
+  } else {
+    if (!STATE.realtimeChannel) {
+      toast('Forbindelsen er afbrudt', 'error');
+      return;
+    }
+    await STATE.realtimeChannel.send({
+      type: 'broadcast',
+      event: 'request_placement',
+      payload: {
+        fromPlayerId: STATE.myPlayerId,
+        beforeYear,
+        afterYear,
+      },
+    });
+    // Show a transient "venter på host" indicator? For now just rely on the
+    // realtime UI update once host advances phase to reveal.
+  }
+}
+
+// Host-only: actually compute correctness and persist to DB
+async function performPlacement(playerId, beforeYear, afterYear) {
+  if (!STATE.isHost) return;
   const trackYear = STATE.game.current_track?.year;
   if (trackYear == null) return;
 
-  const me = STATE.players.find(p => p.id === STATE.myPlayerId);
-  if (!me) return;
+  const player = STATE.players.find(p => p.id === playerId);
+  if (!player) return;
 
-  const isFirstCard = (me.timeline || []).length === 0;
+  const isFirstCard = (player.timeline || []).length === 0;
 
-  // Correct if the year fits between the bounds.
-  // - Both bounds null = first card → always "correct" (free placement)
-  // - Only beforeYear set = placed at the end → trackYear must be >= beforeYear
-  // - Only afterYear set = placed at the start → trackYear must be <= afterYear
-  // - Both set = trackYear must be between them inclusive
-  // Edge cases: the placement allows ties (e.g. 1985 placed adjacent to another 1985 is fine)
   let isCorrect;
   if (isFirstCard) {
     isCorrect = true;
@@ -1828,19 +1923,19 @@ async function submitPlacement(beforeYear, afterYear) {
 
   // Update player's timeline if correct or first card
   if (isCorrect) {
-    const newTimeline = [...(me.timeline || []), {
+    const newTimeline = [...(player.timeline || []), {
       track_id: STATE.game.current_track.id,
       year: trackYear,
       title: STATE.game.current_track.title,
       artist: STATE.game.current_track.artist,
     }].sort((a, b) => a.year - b.year);
     await supa.from('players').update({
-      score: newTimeline.length,  // score = cards in timeline
+      score: newTimeline.length,
       timeline: newTimeline,
-    }).eq('id', me.id);
+    }).eq('id', player.id);
   }
 
-  // Save the placement metadata + advance to reveal
+  // Advance to reveal phase
   await supa.from('games').update({
     turn_phase: 'reveal',
     pending_placement: {
@@ -1848,6 +1943,7 @@ async function submitPlacement(beforeYear, afterYear) {
       after_year: afterYear,
       was_correct: isCorrect,
       first_card: isFirstCard,
+      player_id: playerId,
     },
   }).eq('id', STATE.game.id);
 }
