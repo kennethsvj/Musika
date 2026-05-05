@@ -804,6 +804,7 @@ async function createGame() {
     .select('track:tracks(*)').eq('playlist_id', playlist_id);
   if (ptErr) return toast(ptErr.message, 'error');
   const trackPool = (pt || []).map(r => r.track).filter(Boolean);
+  console.log('createGame: loaded', trackPool.length, 'tracks for playlist', playlist_id);
   if (trackPool.length < 5) return toast('Playlisten har for få tracks (min. 5)', 'error');
 
   const code = generateCode();
@@ -1183,8 +1184,21 @@ async function drawCard() {
   const usedIds = STATE.game.used_track_ids || [];
   const available = pool.filter(t => !usedIds.includes(t.id));
 
+  console.log('drawCard diagnostic:', {
+    poolSize: pool.length,
+    usedIdsSize: usedIds.length,
+    availableSize: available.length,
+    poolFirstTrack: pool[0],
+    usedIds: usedIds.slice(0, 5),
+  });
+
+  if (pool.length === 0) {
+    toast('Playlisten har ingen tracks — tjek admin-siden', 'error');
+    return;
+  }
+
   if (available.length === 0) {
-    toast('Alle sange er brugt — spillet slutter');
+    toast(`Alle ${pool.length} sange er brugt — spillet slutter`);
     await endGame();
     return;
   }
