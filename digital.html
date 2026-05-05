@@ -265,7 +265,9 @@
     cursor: grab; user-select: none; -webkit-user-select: none;
     touch-action: none; /* IMPORTANT: prevents browser pan from stealing the touch */
     position: relative;
-    transition: transform 0.15s ease-out, box-shadow 0.15s;
+    will-change: transform; /* GPU layer for smoother dragging */
+    transform: translate3d(0, 0, 0); /* force initial layer */
+    transition: transform 0.15s ease-out, box-shadow 0.15s, border-color 0.15s;
   }
   .card-back:active { cursor: grabbing; }
   .card-back.dragging {
@@ -274,12 +276,23 @@
     z-index: 1000;
     box-shadow: 0 16px 48px rgba(255,56,100,0.5);
   }
+  .card-back.in-cancel-zone {
+    /* Visual hint: when card is back near start, mark it green = "drop here to cancel" */
+    border-color: var(--success);
+    box-shadow: 0 16px 48px rgba(0, 217, 126, 0.5);
+  }
+  .card-back.in-cancel-zone .card-back-hint::before {
+    content: '↩ Slip for at annullere';
+  }
+  .card-back.in-cancel-zone .card-back-hint .hint-text {
+    display: none;
+  }
   .card-back.snap-back {
-    animation: snapBack 0.3s ease-out;
+    animation: snapBack 0.25s ease-out;
   }
   @keyframes snapBack {
-    from { transform: var(--snap-from, translate(0, 0)); }
-    to { transform: translate(0, 0); }
+    from { transform: var(--snap-from, translate3d(0, 0, 0)); }
+    to { transform: translate3d(0, 0, 0); }
   }
   .vinyl-spinning {
     width: 90px; height: 90px; border-radius: 50%;
@@ -563,7 +576,7 @@
               <div class="vinyl-grooves"></div>
               <div class="vinyl-label"></div>
             </div>
-            <div class="card-back-hint">Hold og træk ↓</div>
+            <div class="card-back-hint"><span class="hint-text">Hold og træk ↓</span></div>
           </div>
         </div>
         <div class="drag-timeline" id="drag-timeline">
@@ -1527,25 +1540,12 @@ async function drawCard() {
   const usedIds = STATE.game.used_track_ids || [];
   const available = pool.filter(t => !usedIds.includes(t.id));
 
-  // Always show diagnostic on screen so we can debug without console access
-  const diag = `Pool: ${pool.length} | Used: ${usedIds.length} | Available: ${available.length}`;
-  console.log('drawCard diagnostic:', {
-    poolSize: pool.length,
-    usedIdsSize: usedIds.length,
-    availableSize: available.length,
-    poolFirstTrack: pool[0],
-    usedIds: usedIds.slice(0, 5),
-    gameId: STATE.game.id,
-    gameKeys: Object.keys(STATE.game),
-  });
-
   if (pool.length === 0) {
-    alert(`FEJL: Playlisten har ingen tracks i spillets pool.\n\n${diag}\n\nGameId: ${STATE.game.id}\n\nMuligheder:\n- Du tester på et gammelt spil (før database-migration kørte)\n- track_pool kolonnen findes ikke i databasen endnu\n- Opret et nyt spil og prøv igen`);
+    toast('Spillets track-pool er tom — kør migrationen og opret nyt spil', 'error');
     return;
   }
-
   if (available.length === 0) {
-    alert(`Alle ${pool.length} sange er brugt.\n\n${diag}`);
+    toast(`Alle ${pool.length} sange er brugt`, 'success');
     await endGame();
     return;
   }
@@ -1607,6 +1607,8 @@ function renderDragTimeline() {
 let _drag = {
   active: false,
   startX: 0, startY: 0,
+  lastClientX: 0, lastClientY: 0,
+  rafPending: false,
   cardEl: null,
   hoveredZone: null,
   autoScrollTimer: null,
@@ -1631,6 +1633,9 @@ function onDragStart(e) {
   _drag.cardEl = card;
   _drag.startX = e.clientX;
   _drag.startY = e.clientY;
+  _drag.lastClientX = e.clientX;
+  _drag.lastClientY = e.clientY;
+  _drag.rafPending = false;
   card.classList.add('dragging');
   card.classList.remove('snap-back');
   card.setPointerCapture(e.pointerId);
@@ -1638,24 +1643,41 @@ function onDragStart(e) {
 
 function onDragMove(e) {
   if (!_drag.active) return;
-  const dx = e.clientX - _drag.startX;
-  const dy = e.clientY - _drag.startY;
-  _drag.cardEl.style.transform = `translate(${dx}px, ${dy}px)`;
+  // Save the latest position; do the actual work in rAF for smoother animation
+  _drag.lastClientX = e.clientX;
+  _drag.lastClientY = e.clientY;
+  if (_drag.rafPending) return;
+  _drag.rafPending = true;
+  requestAnimationFrame(() => {
+    _drag.rafPending = false;
+    if (!_drag.active) return;
+    processDragFrame();
+  });
+}
 
-  // Find the NEAREST dropzone whose horizontal center is closest to the finger.
-  // This is much more forgiving than requiring a precise hit on the narrow zone.
-  // We only consider dropzones if the finger is roughly within the timeline's
-  // vertical band — otherwise no zone is highlighted (= snap back on release).
+function processDragFrame() {
+  const x = _drag.lastClientX;
+  const y = _drag.lastClientY;
+  const dx = x - _drag.startX;
+  const dy = y - _drag.startY;
+  _drag.cardEl.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
+
+  // Cancel zone: if the user drags back near the starting point (within 80px),
+  // we treat it as "wants to cancel" — no dropzone is highlighted. This makes
+  // it easy to back out of a drag without committing to any placement.
+  const cancelDist = 80;
+  const isInCancelZone = Math.abs(dx) < cancelDist && dy < cancelDist;
+
+  // Find nearest dropzone (or null if user is hovering over the card itself)
   const tl = document.getElementById('drag-timeline');
   let nearest = null;
-  if (tl) {
+
+  if (!isInCancelZone && tl) {
     const tlRect = tl.getBoundingClientRect();
-    // Vertical "magnetic field" — extends ~120px above and below the timeline
-    // so user doesn't have to drag the card all the way down
     const verticalSlack = 120;
     const inVerticalBand =
-      e.clientY > tlRect.top - verticalSlack &&
-      e.clientY < tlRect.bottom + verticalSlack;
+      y > tlRect.top - verticalSlack &&
+      y < tlRect.bottom + verticalSlack;
 
     if (inVerticalBand) {
       const zones = tl.querySelectorAll('.dropzone');
@@ -1663,7 +1685,7 @@ function onDragMove(e) {
       zones.forEach(z => {
         const r = z.getBoundingClientRect();
         const cx = r.left + r.width / 2;
-        const dist = Math.abs(e.clientX - cx);
+        const dist = Math.abs(x - cx);
         if (dist < bestDist) {
           bestDist = dist;
           nearest = z;
@@ -1672,16 +1694,15 @@ function onDragMove(e) {
     }
   }
 
+  // Update hover state if it changed
   if (nearest !== _drag.hoveredZone) {
     if (_drag.hoveredZone) {
       _drag.hoveredZone.classList.remove('hover');
-      // Remove the outline-card placeholder
-      const outline = _drag.hoveredZone.querySelector('.drop-outline');
-      if (outline) outline.remove();
+      const oldOutline = _drag.hoveredZone.querySelector('.drop-outline');
+      if (oldOutline) oldOutline.remove();
     }
     if (nearest) {
       nearest.classList.add('hover');
-      // Add an outline-card placeholder showing where the card will land
       const outline = document.createElement('div');
       outline.className = 'drop-outline';
       outline.innerHTML = '<div class="drop-outline-inner">⬇<br>HER</div>';
@@ -1690,18 +1711,26 @@ function onDragMove(e) {
     _drag.hoveredZone = nearest;
   }
 
-  // Auto-scroll the timeline if cursor near edges
-  if (tl) {
+  // Update cancel-zone visual indicator
+  const cardEl = _drag.cardEl;
+  cardEl.classList.toggle('in-cancel-zone', isInCancelZone);
+
+  // Auto-scroll: only when actually outside the cancel zone (so it doesn't
+  // start scrolling the moment user lifts the card off start position)
+  if (tl && !isInCancelZone) {
     const rect = tl.getBoundingClientRect();
     const edge = 60;
     let scrollDir = 0;
-    if (e.clientX < rect.left + edge) scrollDir = -1;
-    else if (e.clientX > rect.right - edge) scrollDir = 1;
+    if (x < rect.left + edge) scrollDir = -1;
+    else if (x > rect.right - edge) scrollDir = 1;
 
     clearInterval(_drag.autoScrollTimer);
     if (scrollDir !== 0) {
       _drag.autoScrollTimer = setInterval(() => { tl.scrollLeft += scrollDir * 6; }, 16);
     }
+  } else {
+    clearInterval(_drag.autoScrollTimer);
+    _drag.autoScrollTimer = null;
   }
 }
 
@@ -1709,8 +1738,9 @@ async function onDragEnd(e) {
   if (!_drag.active) return;
   const card = _drag.cardEl;
   _drag.active = false;
+  _drag.rafPending = false;
   card.releasePointerCapture?.(e.pointerId);
-  card.classList.remove('dragging');
+  card.classList.remove('dragging', 'in-cancel-zone');
   clearInterval(_drag.autoScrollTimer);
   _drag.autoScrollTimer = null;
 
@@ -1720,12 +1750,12 @@ async function onDragEnd(e) {
     const outline = zone.querySelector('.drop-outline');
     if (outline) outline.remove();
   }
+  _drag.hoveredZone = null;
 
   if (!zone) {
-    // No drop zone — snap back
+    // No drop zone (or in cancel zone) — snap back smoothly
     card.classList.add('snap-back');
-    card.style.transform = 'translate(0, 0)';
-    _drag.hoveredZone = null;
+    card.style.transform = 'translate3d(0, 0, 0)';
     return;
   }
 
@@ -1735,10 +1765,7 @@ async function onDragEnd(e) {
   const beforeYear = beforeAttr ? parseInt(beforeAttr, 10) : null;
   const afterYear = afterAttr ? parseInt(afterAttr, 10) : null;
 
-  // Reset card transform after a brief delay (let browser settle)
-  card.style.transform = 'translate(0, 0)';
-  _drag.hoveredZone = null;
-
+  card.style.transform = 'translate3d(0, 0, 0)';
   await submitPlacement(beforeYear, afterYear);
 }
 
