@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Musika – Tilslut</title>
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Musika">
+<meta name="theme-color" content="#0a0a0f">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+
+<style>
+  :root {
+    --bg: #0a0a0f; --panel: #15151f; --panel-light: #1f1f2e; --border: #2a2a3a;
+    --text: #e8e8f0; --muted: #8080a0; --accent: #ff3864; --accent-2: #00d4ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    background-image: radial-gradient(circle at 20% 0%, rgba(255,56,100,0.08) 0%, transparent 50%),
+                      radial-gradient(circle at 80% 100%, rgba(0,212,255,0.06) 0%, transparent 50%);
+    color: var(--text); min-height: 100vh; padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  @supports (padding: max(0px)) {
+    body {
+      padding-top: max(16px, env(safe-area-inset-top));
+      padding-bottom: max(16px, env(safe-area-inset-bottom));
+    }
+  }
+  .app { max-width: 420px; margin: 0 auto; width: 100%; }
+
+  h1 { font-size: 28px; margin: 0 0 6px; font-weight: 800; text-align: center; }
+  h1 span {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .subtitle { color: var(--muted); margin: 0 0 24px; font-size: 14px; text-align: center; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px; margin-bottom: 14px; }
+
+  label { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; font-weight: 700; }
+  input {
+    width: 100%; background: var(--panel-light); border: 1px solid var(--border);
+    color: var(--text); padding: 14px 16px; border-radius: 10px; font-size: 16px;
+    font-family: inherit; outline: none;
+  }
+  input:focus { border-color: var(--accent-2); }
+
+  button {
+    width: 100%; background: var(--accent); color: white;
+    border: none; padding: 16px; border-radius: 10px; font-size: 16px;
+    font-weight: 700; cursor: pointer; font-family: inherit;
+    box-shadow: 0 2px 8px rgba(255,56,100,0.2);
+  }
+  button:active { transform: scale(0.98); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* 4-cell code input */
+  .code-input-wrap {
+    display: flex; gap: 8px; justify-content: center; margin: 8px 0;
+  }
+  .code-cell {
+    width: 56px; height: 70px; text-align: center;
+    font-size: 32px; font-weight: 800; padding: 0;
+    text-transform: uppercase;
+    background: var(--panel-light); border: 1px solid var(--border);
+    border-radius: 12px; color: var(--text);
+  }
+  .code-cell:focus { border-color: var(--accent-2); outline: none; }
+
+  /* Status display when code came from URL */
+  .code-display {
+    text-align: center;
+    background: var(--panel-light); border: 1px solid var(--accent-2);
+    border-radius: 10px; padding: 14px; margin-bottom: 14px;
+  }
+  .code-display .label { font-size: 11px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; }
+  .code-display .code-big {
+    font-size: 28px; font-weight: 900; letter-spacing: 6px;
+    color: var(--accent-2); font-variant-numeric: tabular-nums;
+    margin-top: 4px;
+  }
+
+  .toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-200%);
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 12px 20px; border-radius: 10px; z-index: 9999;
+    transition: transform 0.3s; max-width: 90vw;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.error { border-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <h1>🎵 <span>Musika</span></h1>
+  <p class="subtitle">Tilslut spil</p>
+
+  <!-- Code came from URL (QR scan): just ask for name -->
+  <div id="quick-join" class="hidden">
+    <div class="code-display">
+      <div class="label">Spil-kode</div>
+      <div class="code-big" id="prefilled-code">----</div>
+    </div>
+    <div class="panel">
+      <label>Dit navn</label>
+      <input id="quick-name" type="text" placeholder="fx Anne" maxlength="20" autocomplete="given-name">
+      <button style="margin-top:14px;" onclick="quickJoin()">Tilslut spil</button>
+    </div>
+  </div>
+
+  <!-- No code: ask for code + name -->
+  <div id="manual-join">
+    <div class="panel">
+      <label>Spil-kode (4 bogstaver)</label>
+      <div class="code-input-wrap">
+        <input type="text" maxlength="1" class="code-cell" data-idx="0" autocomplete="off" inputmode="text">
+        <input type="text" maxlength="1" class="code-cell" data-idx="1" autocomplete="off" inputmode="text">
+        <input type="text" maxlength="1" class="code-cell" data-idx="2" autocomplete="off" inputmode="text">
+        <input type="text" maxlength="1" class="code-cell" data-idx="3" autocomplete="off" inputmode="text">
+      </div>
+
+      <label style="margin-top:14px;">Dit navn</label>
+      <input id="manual-name" type="text" placeholder="fx Anne" maxlength="20" autocomplete="given-name">
+
+      <button style="margin-top:14px;" onclick="manualJoin()">Tilslut spil</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// ============================================================
+// JOIN PAGE — minimal entry point for guest players.
+// On submit: redirects to digital.html?join=CODE&name=NAME which then
+// handles the actual game-joining logic.
+// ============================================================
+
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type ? ' ' + type : '');
+  setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+// Wire up code-cell auto-advance
+function setupCodeCells() {
+  const cells = document.querySelectorAll('.code-cell');
+  cells.forEach((c, i) => {
+    c.oninput = () => {
+      c.value = c.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (c.value && i < cells.length - 1) cells[i + 1].focus();
+    };
+    c.onkeydown = (e) => {
+      if (e.key === 'Backspace' && !c.value && i > 0) cells[i - 1].focus();
+      if (e.key === 'Enter') manualJoin();
+    };
+    // Allow paste of full code
+    c.onpaste = (e) => {
+      const txt = (e.clipboardData || window.clipboardData).getData('text').trim().toUpperCase();
+      if (txt.length === 4 && /^[A-Z0-9]{4}$/.test(txt)) {
+        e.preventDefault();
+        cells.forEach((cell, idx) => cell.value = txt[idx] || '');
+        cells[3].focus();
+      }
+    };
+  });
+}
+
+function getCodeFromCells() {
+  return Array.from(document.querySelectorAll('.code-cell'))
+    .map(c => c.value.trim().toUpperCase())
+    .join('');
+}
+
+function redirectToGame(code, name) {
+  // Pass code + name as URL params; digital.html picks them up and auto-joins
+  const url = new URL('digital.html', window.location.href);
+  url.searchParams.set('join', code);
+  url.searchParams.set('name', name);
+  window.location.href = url.toString();
+}
+
+function quickJoin() {
+  const code = document.getElementById('prefilled-code').textContent.trim().toUpperCase();
+  const name = document.getElementById('quick-name').value.trim();
+  if (!name) return toast('Skriv dit navn', 'error');
+  if (!/^[A-Z0-9]{4}$/.test(code)) return toast('Ugyldig kode', 'error');
+  redirectToGame(code, name);
+}
+
+function manualJoin() {
+  const code = getCodeFromCells();
+  const name = document.getElementById('manual-name').value.trim();
+  if (code.length !== 4) return toast('Indtast hele koden', 'error');
+  if (!name) return toast('Skriv dit navn', 'error');
+  redirectToGame(code, name);
+}
+
+// Boot — check if URL has ?code=XXXX (from QR scan) and switch to quick-join mode
+(function init() {
+  const params = new URLSearchParams(window.location.search);
+  const code = (params.get('code') || '').trim().toUpperCase();
+  if (/^[A-Z0-9]{4}$/.test(code)) {
+    document.getElementById('manual-join').classList.add('hidden');
+    document.getElementById('quick-join').classList.remove('hidden');
+    document.getElementById('prefilled-code').textContent = code;
+    setTimeout(() => document.getElementById('quick-name').focus(), 100);
+  } else {
+    setupCodeCells();
+    setTimeout(() => document.querySelector('.code-cell').focus(), 100);
+  }
+})();
+</script>
+
+<style>.hidden { display: none !important; }</style>
+</body>
+</html>
