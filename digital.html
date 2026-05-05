@@ -14,6 +14,7 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 
+<script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
@@ -412,8 +413,15 @@
 // ============================================================
 // CONFIG
 // ============================================================
-const SUPABASE_URL = 'https://emhuwjlkfwwapyhmnirq.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndmYnp1enV6cHlobnZqcmhham5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDQxODgsImV4cCI6MjA5MTgyMDE4OH0.ERpe5nHFfd9r6lbEZ9bkQzkkHvTj-k-u4G9N1ZI3N2w';
+// ============================================================
+// CONFIG (loaded from config.js → window.MUSIKA_CONFIG)
+// ============================================================
+const SUPABASE_URL = (window.MUSIKA_CONFIG || {}).SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = (window.MUSIKA_CONFIG || {}).SUPABASE_ANON_KEY || '';
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY || SUPABASE_ANON_KEY.includes('PASTE_YOUR')) {
+  document.body.innerHTML = '<div style="color:white; text-align:center; padding:40px; font-family:sans-serif;"><h2>⚠️ config.js mangler eller er ikke udfyldt</h2><p>Åbn config.js og indsæt din Supabase anon key.</p></div>';
+  throw new Error('Missing config.js — please fill in your Supabase anon key');
+}
 const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ============================================================
