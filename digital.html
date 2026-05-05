@@ -67,6 +67,9 @@
     border: none; padding: 14px; border-radius: 10px; font-size: 15px;
     font-weight: 700; cursor: pointer; font-family: inherit;
     box-shadow: 0 2px 8px rgba(255,56,100,0.2);
+    /* Disable iOS double-tap-to-zoom delay; makes buttons respond immediately */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
   button:active { transform: scale(0.98); }
   button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
@@ -1536,11 +1539,17 @@ function renderTimelines() {
 async function drawCard() {
   if (!STATE.game) return;
 
+  // Optimistic UI: hide the draw button immediately so user knows their tap registered.
+  // The realtime broadcast will then re-render with the listening phase.
+  const drawPhase = document.getElementById('phase-draw');
+  if (drawPhase) drawPhase.classList.add('hidden');
+
   const pool = STATE.game.track_pool || [];
   const usedIds = STATE.game.used_track_ids || [];
   const available = pool.filter(t => !usedIds.includes(t.id));
 
   if (pool.length === 0) {
+    if (drawPhase) drawPhase.classList.remove('hidden');
     toast('Spillets track-pool er tom — kør migrationen og opret nyt spil', 'error');
     return;
   }
@@ -1857,6 +1866,11 @@ function renderReveal() {
 // ============================================================
 async function nextTurn() {
   if (!STATE.isHost) return;
+
+  // Optimistic UI: hide the reveal phase immediately so user gets instant feedback.
+  // The realtime broadcast will then re-render with the next turn's draw phase.
+  const revealPhase = document.getElementById('phase-reveal');
+  if (revealPhase) revealPhase.classList.add('hidden');
 
   const turnOrder = STATE.game.turn_order || [];
   if (turnOrder.length === 0) return;
