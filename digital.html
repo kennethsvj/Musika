@@ -796,20 +796,42 @@ async function createGame() {
   const playlist_id = document.getElementById('playlist-select').value;
   if (!playlist_id) return toast('Vælg en playliste', 'error');
 
+  // FORCE FRESH: clear any stale localStorage session before creating
+  clearSession();
+
   const { data: { session } } = await supa.auth.getSession();
   if (!session) return toast('Login udløbet', 'error');
 
   // Load all tracks for this playlist into a track_pool
   const { data: pt, error: ptErr } = await supa.from('playlist_tracks')
     .select('track:tracks(*)').eq('playlist_id', playlist_id);
-  if (ptErr) return toast(ptErr.message, 'error');
+
+  // STRONG DIAGNOSTIC — show every detail in an alert before continuing
+  const debugInfo = `
+DIAGNOSTIK ved spil-oprettelse:
+- playlist_id: ${playlist_id}
+- query error: ${ptErr ? ptErr.message : 'ingen'}
+- rows returned: ${(pt || []).length}
+- first row tracks-key: ${pt && pt[0] ? JSON.stringify(pt[0]).slice(0, 200) : 'ingen'}
+- mapped trackPool: ${(pt || []).map(r => r.track).filter(Boolean).length}
+  `.trim();
+  console.log(debugInfo);
+
+  if (ptErr) {
+    alert('FEJL ved hentning af tracks:\n\n' + ptErr.message);
+    return;
+  }
+
   const trackPool = (pt || []).map(r => r.track).filter(Boolean);
-  console.log('createGame: loaded', trackPool.length, 'tracks for playlist', playlist_id);
+
   if (trackPool.length === 0) {
-    alert(`FEJL: Playlisten "${playlist_id}" har 0 tracks i playlist_tracks-tabellen.\n\nGå til admin-siden og tilføj sange til playlisten først.`);
+    alert(debugInfo + `\n\nFEJL: Hentede 0 tracks fra databasen.\n\nVi har bekræftet at playlisten HAR tracks (du så det i SQL-resultatet), så problemet er enten:\n1. Forkert playlist_id sendt fra dropdown\n2. RLS på playlist_tracks blokerer\n3. Noget andet`);
     return;
   }
   if (trackPool.length < 5) return toast(`Playlisten har kun ${trackPool.length} tracks (min. 5)`, 'error');
+
+  // Show success diagnostic too — so we know it persists
+  console.log('createGame: loaded', trackPool.length, 'tracks. Now creating game...');
 
   const code = generateCode();
   const { data: game, error } = await supa.from('games').insert({
