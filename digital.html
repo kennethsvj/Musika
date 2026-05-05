@@ -805,7 +805,11 @@ async function createGame() {
   if (ptErr) return toast(ptErr.message, 'error');
   const trackPool = (pt || []).map(r => r.track).filter(Boolean);
   console.log('createGame: loaded', trackPool.length, 'tracks for playlist', playlist_id);
-  if (trackPool.length < 5) return toast('Playlisten har for få tracks (min. 5)', 'error');
+  if (trackPool.length === 0) {
+    alert(`FEJL: Playlisten "${playlist_id}" har 0 tracks i playlist_tracks-tabellen.\n\nGå til admin-siden og tilføj sange til playlisten først.`);
+    return;
+  }
+  if (trackPool.length < 5) return toast(`Playlisten har kun ${trackPool.length} tracks (min. 5)`, 'error');
 
   const code = generateCode();
   const { data: game, error } = await supa.from('games').insert({
@@ -822,6 +826,15 @@ async function createGame() {
     win_points: 10,  // 10 cards in timeline = win
   }).select().single();
   if (error) return toast(error.message, 'error');
+
+  // Sanity check: did track_pool actually persist? (It won't if migration-digital-mode.sql wasn't run)
+  if (!game.track_pool || (Array.isArray(game.track_pool) && game.track_pool.length === 0)) {
+    alert(`FEJL: track_pool blev ikke gemt i databasen.\n\nDet betyder at migration-digital-mode.sql ikke er kørt i Supabase SQL Editor.\n\nGå til Supabase → SQL Editor → kør migration-digital-mode.sql → prøv igen.\n\nVi forsøgte at gemme ${trackPool.length} tracks.`);
+    // Clean up the broken game so it doesn't appear in lobbies
+    await supa.from('games').delete().eq('id', game.id);
+    return;
+  }
+  console.log('createGame: game persisted with', game.track_pool?.length || 0, 'tracks in pool');
 
   // Add ourselves as the host player
   const { data: player, error: pErr } = await supa.from('players').insert({
@@ -1184,29 +1197,31 @@ async function drawCard() {
   const usedIds = STATE.game.used_track_ids || [];
   const available = pool.filter(t => !usedIds.includes(t.id));
 
+  // Always show diagnostic on screen so we can debug without console access
+  const diag = `Pool: ${pool.length} | Used: ${usedIds.length} | Available: ${available.length}`;
   console.log('drawCard diagnostic:', {
     poolSize: pool.length,
     usedIdsSize: usedIds.length,
     availableSize: available.length,
     poolFirstTrack: pool[0],
     usedIds: usedIds.slice(0, 5),
+    gameId: STATE.game.id,
+    gameKeys: Object.keys(STATE.game),
   });
 
   if (pool.length === 0) {
-    toast('Playlisten har ingen tracks — tjek admin-siden', 'error');
+    alert(`FEJL: Playlisten har ingen tracks i spillets pool.\n\n${diag}\n\nGameId: ${STATE.game.id}\n\nMuligheder:\n- Du tester på et gammelt spil (før database-migration kørte)\n- track_pool kolonnen findes ikke i databasen endnu\n- Opret et nyt spil og prøv igen`);
     return;
   }
 
   if (available.length === 0) {
-    toast(`Alle ${pool.length} sange er brugt — spillet slutter`);
+    alert(`Alle ${pool.length} sange er brugt.\n\n${diag}`);
     await endGame();
     return;
   }
 
   const track = available[Math.floor(Math.random() * available.length)];
 
-  // Set as current_track + advance phase. The realtime broadcast will trigger
-  // music host's device to actually start playing via maybePlayMusicForCurrentTrack().
   await supa.from('games').update({
     current_track: track,
     used_track_ids: [...usedIds, track.id],
