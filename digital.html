@@ -1032,7 +1032,18 @@ async function onGameUpdate(payload) {
     const oldStatus = STATE.game.status;
     const oldPhase = STATE.game.turn_phase;
     const oldTrack = STATE.game.current_track;
-    STATE.game = payload.new;
+
+    // CRITICAL: merge instead of replace.
+    // Supabase realtime payloads may not include large jsonb fields like track_pool
+    // (depends on REPLICA IDENTITY config). Always preserve existing local fields.
+    STATE.game = { ...STATE.game, ...payload.new };
+
+    // If track_pool is missing from STATE for some reason (refresh, etc.),
+    // re-fetch the full row from DB to be safe
+    if (!STATE.game.track_pool || STATE.game.track_pool.length === 0) {
+      const { data: fresh } = await supa.from('games').select('*').eq('id', STATE.game.id).maybeSingle();
+      if (fresh) STATE.game = fresh;
+    }
 
     // Status transitions
     if (oldStatus === 'lobby' && STATE.game.status === 'playing') {
