@@ -1540,7 +1540,6 @@ async function drawCard() {
   if (!STATE.game) return;
 
   // Optimistic UI: hide the draw button immediately so user knows their tap registered.
-  // The realtime broadcast will then re-render with the listening phase.
   const drawPhase = document.getElementById('phase-draw');
   if (drawPhase) drawPhase.classList.add('hidden');
 
@@ -1561,11 +1560,31 @@ async function drawCard() {
 
   const track = available[Math.floor(Math.random() * available.length)];
 
-  await supa.from('games').update({
+  // Verify the update actually persisted by requesting the row back.
+  // If RLS blocks the write, .select() returns no rows and we know to fall back.
+  const { data: updated, error } = await supa.from('games').update({
     current_track: track,
     used_track_ids: [...usedIds, track.id],
     turn_phase: 'listening',
-  }).eq('id', STATE.game.id);
+  }).eq('id', STATE.game.id).select();
+
+  if (error) {
+    console.error('drawCard update error:', error);
+    if (drawPhase) drawPhase.classList.remove('hidden');
+    toast('Fejl: ' + error.message, 'error');
+    return;
+  }
+
+  if (!updated || updated.length === 0) {
+    // RLS silently rejected the write — most likely cause for guest players.
+    console.warn('drawCard: update succeeded but returned 0 rows (likely RLS).');
+    if (drawPhase) drawPhase.classList.remove('hidden');
+    alert('Spillet kunne ikke opdateres.\n\nDette skyldes som regel at databasens sikkerhedsregler (RLS) ikke tillader gæst-spillere at opdatere spillet. Host skal køre fix-rls-for-digital.sql i Supabase.');
+    return;
+  }
+
+  // Success — realtime will broadcast and update the UI for everyone
+  console.log('drawCard: track set successfully', track.title);
 }
 
 // ============================================================
