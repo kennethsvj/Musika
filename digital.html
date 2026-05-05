@@ -1379,19 +1379,36 @@ async function boot() {
   }
 
   // Path 3: user has auth session → show create screen
-  const { data: { session } } = await supa.auth.getSession();
+  const { data: { session }, error: sessErr } = await supa.auth.getSession();
+  console.log('Boot: session check', { hasSession: !!session, error: sessErr });
   if (session) {
     // Load playlists for the create screen
-    const { data: playlists } = await supa.from('playlists').select('*').order('name');
+    const { data: playlists, error: plErr } = await supa.from('playlists').select('*').order('name');
+    if (plErr) {
+      console.error('Could not load playlists:', plErr);
+      toast('Kunne ikke hente playlister: ' + plErr.message, 'error');
+    }
     document.getElementById('playlist-select').innerHTML =
       (playlists || []).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
     show('create-screen');
     return;
   }
 
-  // Path 4: nothing — point them at host.html
+  // Path 4: nothing — point them at host.html, with diagnostic info
   document.getElementById('boot-subtitle').textContent = '';
   document.getElementById('not-logged-in').style.display = 'block';
+
+  // Diagnostic: scan localStorage for any Supabase auth tokens
+  const sbKeys = Object.keys(localStorage).filter(k => k.startsWith('sb-'));
+  let diag = `<details style="margin-top:14px; font-size:11px; color:var(--muted);">`;
+  diag += `<summary style="cursor:pointer;">🔍 Diagnostik (åbn for detaljer)</summary>`;
+  diag += `<div style="text-align:left; margin-top:8px; font-family:monospace; line-height:1.6;">`;
+  diag += `<div>SUPABASE_URL: ${SUPABASE_URL ? '✓ sat' : '✗ mangler'}</div>`;
+  diag += `<div>ANON_KEY: ${SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.includes('PASTE') ? '✓ sat' : '✗ mangler/placeholder'}</div>`;
+  diag += `<div>LocalStorage sb-* keys: ${sbKeys.length === 0 ? '(ingen)' : sbKeys.join(', ')}</div>`;
+  if (sessErr) diag += `<div style="color:var(--accent);">Fejl: ${sessErr.message}</div>`;
+  diag += `</div></details>`;
+  document.getElementById('not-logged-in').insertAdjacentHTML('beforeend', diag);
 }
 
 boot();
