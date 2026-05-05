@@ -15,6 +15,7 @@
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
   :root {
     --bg: #0a0a0f; --panel: #15151f; --panel-light: #1f1f2e; --border: #2a2a3a;
@@ -85,9 +86,18 @@
 
   /* ============ GAME CODE DISPLAY (host view) ============ */
   .game-code {
-    text-align: center; font-size: 48px; font-weight: 900;
+    text-align: center; font-size: 42px; font-weight: 900;
     letter-spacing: 8px; color: var(--accent-2);
-    margin: 12px 0; font-variant-numeric: tabular-nums;
+    margin: 12px 0 8px; font-variant-numeric: tabular-nums;
+  }
+  /* QR code wrapper */
+  #lobby-qr {
+    background: white; padding: 14px; border-radius: 12px;
+    width: fit-content; margin: 0 auto 4px;
+    box-shadow: 0 4px 16px rgba(0,212,255,0.2);
+  }
+  #lobby-qr img, #lobby-qr canvas {
+    display: block; width: 180px !important; height: 180px !important;
   }
 
   /* ============ PLAYER LIST (lobby) ============ */
@@ -210,53 +220,45 @@
 
 <div class="app">
 
-  <!-- ============ START SCREEN ============ -->
+  <!-- ============ LOADING / ROUTING ============ -->
   <div id="start-screen">
     <h1>🎵 <span>Musika</span> Digital</h1>
-    <p class="subtitle">Spil online med dine venner</p>
+    <p class="subtitle" id="boot-subtitle">Indlæser...</p>
 
-    <div class="panel">
-      <label>Dit navn</label>
-      <input id="my-name" type="text" placeholder="fx Anne" maxlength="20">
-
-      <button style="margin-top:14px;" onclick="goCreate()">Opret nyt spil</button>
-      <button class="secondary" style="margin-top:8px;" onclick="goJoin()">Tilslut spil</button>
+    <div class="panel" id="not-logged-in" style="display:none;">
+      <p style="font-size:14px; line-height:1.5; margin: 0 0 12px;">
+        Digital spil oprettes fra <strong>host-siden</strong>. Log ind der først, og opret spillet.
+      </p>
+      <button onclick="location.href='host.html'">Gå til host-siden</button>
     </div>
-  </div>
 
-  <!-- ============ JOIN SCREEN (enter code) ============ -->
-  <div id="join-screen" class="hidden">
-    <h1>Tilslut spil</h1>
-    <p class="subtitle">Indtast den 4-bogstavers kode</p>
-
-    <div class="panel">
-      <div class="code-input-wrap">
-        <input type="text" maxlength="1" class="code-cell" data-idx="0" autocomplete="off">
-        <input type="text" maxlength="1" class="code-cell" data-idx="1" autocomplete="off">
-        <input type="text" maxlength="1" class="code-cell" data-idx="2" autocomplete="off">
-        <input type="text" maxlength="1" class="code-cell" data-idx="3" autocomplete="off">
-      </div>
-      <button style="margin-top:18px;" onclick="joinByCode()">Tilslut</button>
-      <button class="secondary" style="margin-top:8px;" onclick="goStart()">Tilbage</button>
+    <div class="panel" id="join-error" style="display:none;">
+      <p style="font-size:14px; line-height:1.5; margin: 0 0 12px;" id="join-error-msg">
+        Spil ikke fundet.
+      </p>
+      <button onclick="location.href='join.html'">Prøv igen</button>
     </div>
   </div>
 
   <!-- ============ CREATE SCREEN (host setup) ============ -->
   <div id="create-screen" class="hidden">
-    <h1>Opret spil</h1>
+    <h1>Opret digitalt spil</h1>
     <p class="subtitle">Vælg playliste og opret koden</p>
 
     <div class="panel">
-      <label>Playliste</label>
+      <label>Dit navn</label>
+      <input id="my-name" type="text" placeholder="fx Kenneth" maxlength="20">
+
+      <label style="margin-top:14px;">Playliste</label>
       <select id="playlist-select"></select>
 
       <p style="font-size:12px; color:var(--muted); margin-top:12px; line-height:1.5;">
-        Du skal være logget ind via host-siden for at oprette et digitalt spil.
-        Andre spillere joiner med kode (uden login).
+        Når spillet er oprettet, viser jeg en QR-kode dine venner kan scanne for at tilslutte sig.
+        Ingen login nødvendigt for spillere.
       </p>
 
       <button style="margin-top:14px;" onclick="createGame()">Opret spil</button>
-      <button class="secondary" style="margin-top:8px;" onclick="goStart()">Tilbage</button>
+      <button class="secondary" style="margin-top:8px;" onclick="location.href='host.html'">Tilbage til host</button>
     </div>
   </div>
 
@@ -265,10 +267,13 @@
     <h1>Venter på spillere</h1>
 
     <div class="panel">
-      <label>Del koden med dine venner</label>
+      <p style="text-align:center; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:2px; margin: 0 0 14px;">
+        Scan eller indtast kode
+      </p>
+      <div id="lobby-qr"></div>
       <div class="game-code" id="lobby-code">----</div>
-      <p style="text-align:center; color:var(--muted); font-size:12px; margin: 0;">
-        De skal åbne <strong id="lobby-url" style="color:var(--accent-2);"></strong> og indtaste koden
+      <p style="text-align:center; color:var(--muted); font-size:11px; margin: 0;">
+        Eller åbn <strong id="lobby-url" style="color:var(--accent-2);"></strong>
       </p>
     </div>
 
@@ -408,7 +413,7 @@
 // CONFIG
 // ============================================================
 const SUPABASE_URL = 'https://emhuwjlkfwwapyhmnirq.supabase.co';
-const SUPABASE_ANON_KEY = 'PASTE_YOUR_ANON_KEY_HERE';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndmYnp1enV6cHlobnZqcmhham5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNDQxODgsImV4cCI6MjA5MTgyMDE4OH0.ERpe5nHFfd9r6lbEZ9bkQzkkHvTj-k-u4G9N1ZI3N2w';
 const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ============================================================
@@ -763,52 +768,8 @@ async function stopMusicIfPlaying() {
 // SCREEN MANAGEMENT
 // ============================================================
 function show(id) {
-  ['start-screen','join-screen','create-screen','lobby-screen','game-screen']
+  ['start-screen','create-screen','lobby-screen','game-screen']
     .forEach(s => document.getElementById(s).classList.toggle('hidden', s !== id));
-}
-
-function goStart() { show('start-screen'); }
-
-async function goCreate() {
-  const name = document.getElementById('my-name').value.trim();
-  if (!name) return toast('Skriv dit navn først', 'error');
-  STATE.myName = name;
-
-  // Need to be logged in to create a game (host has access to playlists)
-  const { data: { session } } = await supa.auth.getSession();
-  if (!session) {
-    toast('Du skal være logget ind på host-siden først', 'error');
-    setTimeout(() => location.href = 'host.html', 1200);
-    return;
-  }
-
-  // Load playlists
-  const { data: playlists } = await supa.from('playlists').select('*').order('name');
-  document.getElementById('playlist-select').innerHTML =
-    (playlists || []).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
-
-  show('create-screen');
-}
-
-function goJoin() {
-  const name = document.getElementById('my-name').value.trim();
-  if (!name) return toast('Skriv dit navn først', 'error');
-  STATE.myName = name;
-  show('join-screen');
-
-  // Auto-focus + auto-advance through code cells
-  const cells = document.querySelectorAll('.code-cell');
-  cells.forEach((c, i) => {
-    c.value = '';
-    c.oninput = (e) => {
-      c.value = c.value.toUpperCase();
-      if (c.value && i < cells.length - 1) cells[i+1].focus();
-    };
-    c.onkeydown = (e) => {
-      if (e.key === 'Backspace' && !c.value && i > 0) cells[i-1].focus();
-    };
-  });
-  setTimeout(() => cells[0].focus(), 50);
 }
 
 // ============================================================
@@ -820,6 +781,10 @@ function generateCode() {
 }
 
 async function createGame() {
+  const myName = document.getElementById('my-name').value.trim();
+  if (!myName) return toast('Skriv dit navn først', 'error');
+  STATE.myName = myName;
+
   const playlist_id = document.getElementById('playlist-select').value;
   if (!playlist_id) return toast('Vælg en playliste', 'error');
 
@@ -868,17 +833,21 @@ async function createGame() {
 }
 
 // ============================================================
-// JOIN GAME (player)
+// JOIN GAME (player) — called automatically from boot when URL has join+name
 // ============================================================
-async function joinByCode() {
-  const cells = document.querySelectorAll('.code-cell');
-  const code = Array.from(cells).map(c => c.value.trim().toUpperCase()).join('');
-  if (code.length !== 4) return toast('Indtast hele koden', 'error');
+async function joinAsPlayer(code, name) {
+  STATE.myName = name;
 
   const { data: game, error } = await supa.from('games').select('*')
     .eq('code', code).eq('mode', 'digital').neq('status', 'finished').maybeSingle();
-  if (error || !game) return toast('Spil ikke fundet', 'error');
-  if (game.status !== 'lobby') return toast('Spillet er allerede i gang', 'error');
+  if (error || !game) {
+    showJoinError('Spil ikke fundet. Koden kan være forkert eller spillet er afsluttet.');
+    return;
+  }
+  if (game.status !== 'lobby') {
+    showJoinError('Spillet er allerede i gang. Vent til næste runde.');
+    return;
+  }
 
   // Add ourselves as a player
   const { data: player, error: pErr } = await supa.from('players').insert({
@@ -888,7 +857,10 @@ async function joinByCode() {
     score: 0,
     timeline: [],
   }).select().single();
-  if (pErr) return toast(pErr.message, 'error');
+  if (pErr) {
+    showJoinError(pErr.message);
+    return;
+  }
 
   STATE.game = game;
   STATE.myPlayerId = player.id;
@@ -896,6 +868,14 @@ async function joinByCode() {
   saveSession();
 
   await enterLobby();
+}
+
+function showJoinError(msg) {
+  show('start-screen');
+  document.getElementById('boot-subtitle').textContent = '';
+  document.getElementById('not-logged-in').style.display = 'none';
+  document.getElementById('join-error').style.display = 'block';
+  document.getElementById('join-error-msg').textContent = msg;
 }
 
 // ============================================================
@@ -906,8 +886,23 @@ async function enterLobby() {
   document.getElementById('lobby-code').textContent = STATE.game.code;
 
   const baseUrl = window.location.href.split('?')[0].replace(/\/[^\/]*$/, '');
+  const joinUrl = baseUrl + '/join.html?code=' + STATE.game.code;
   document.getElementById('lobby-url').textContent =
-    baseUrl.replace(/^https?:\/\//, '') + '/digital';
+    baseUrl.replace(/^https?:\/\//, '') + '/join.html';
+
+  // Generate QR code (only host needs to see this; players come via QR/URL)
+  if (STATE.isHost) {
+    const qrEl = document.getElementById('lobby-qr');
+    qrEl.innerHTML = ''; // clear any previous
+    try {
+      new QRCode(qrEl, { text: joinUrl, width: 180, height: 180,
+                          colorDark: '#0a0a0f', colorLight: '#ffffff',
+                          correctLevel: QRCode.CorrectLevel.M });
+    } catch (e) { console.warn('QR render failed:', e); }
+  } else {
+    // Players don't need to see the QR — hide it
+    document.getElementById('lobby-qr').style.display = 'none';
+  }
 
   // Show host or player view
   document.getElementById('host-controls').classList.toggle('hidden', !STATE.isHost);
@@ -1322,38 +1317,76 @@ function toast(msg, type = '') {
 }
 
 // ============================================================
-// AUTO-RESUME
+// BOOT ROUTING
+// Decision tree:
+//   1. URL has ?join=CODE&name=NAME → auto-join as guest player
+//   2. localStorage has saved session → resume that game
+//   3. User has Supabase auth session → show host create screen
+//   4. None of the above → show "go to host" message
 // ============================================================
-async function tryAutoResume() {
+async function boot() {
+  const params = new URLSearchParams(window.location.search);
+  const joinCode = (params.get('join') || '').trim().toUpperCase();
+  const joinName = (params.get('name') || '').trim();
+
+  // Path 1: guest joining via URL params (from join.html)
+  if (joinCode && joinName) {
+    document.getElementById('boot-subtitle').textContent = 'Tilslutter spil...';
+    // Strip the params from the URL bar so refresh doesn't re-join
+    history.replaceState({}, '', window.location.pathname);
+    await joinAsPlayer(joinCode, joinName);
+    return;
+  }
+
+  // Path 2: previously saved session — try to resume
   const saved = loadSession();
-  if (!saved) return;
-  // Try to fetch the game
-  const { data: game } = await supa.from('games').select('*')
-    .eq('id', saved.gameId).maybeSingle();
-  if (!game || game.status === 'finished') {
+  if (saved) {
+    document.getElementById('boot-subtitle').textContent = 'Genoptager spil...';
+    const { data: game } = await supa.from('games').select('*')
+      .eq('id', saved.gameId).maybeSingle();
+    if (game && game.status !== 'finished') {
+      const { data: player } = await supa.from('players').select('*')
+        .eq('id', saved.myPlayerId).maybeSingle();
+      if (player) {
+        STATE.game = game;
+        STATE.myPlayerId = saved.myPlayerId;
+        STATE.myName = saved.myName;
+        STATE.isHost = saved.isHost;
+        await loadPlayers();
+        subscribeToGame();
+        if (game.status === 'lobby') {
+          // For host, we need to load Spotify token + SDK script
+          if (STATE.isHost) {
+            await loadSpotifyToken();
+            loadSDKScript();
+          }
+          await enterLobby();
+        } else if (game.status === 'playing') {
+          enterGame();
+        }
+        return;
+      }
+    }
     clearSession();
+  }
+
+  // Path 3: user has auth session → show create screen
+  const { data: { session } } = await supa.auth.getSession();
+  if (session) {
+    // Load playlists for the create screen
+    const { data: playlists } = await supa.from('playlists').select('*').order('name');
+    document.getElementById('playlist-select').innerHTML =
+      (playlists || []).map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    show('create-screen');
     return;
   }
-  // Verify our player still exists
-  const { data: player } = await supa.from('players').select('*')
-    .eq('id', saved.myPlayerId).maybeSingle();
-  if (!player) {
-    clearSession();
-    return;
-  }
-  // Resume!
-  STATE.game = game;
-  STATE.myPlayerId = saved.myPlayerId;
-  STATE.myName = saved.myName;
-  STATE.isHost = saved.isHost;
-  await loadPlayers();
-  subscribeToGame();
-  if (game.status === 'lobby') enterLobby();
-  else if (game.status === 'playing') enterGame();
+
+  // Path 4: nothing — point them at host.html
+  document.getElementById('boot-subtitle').textContent = '';
+  document.getElementById('not-logged-in').style.display = 'block';
 }
 
-// Boot
-tryAutoResume();
+boot();
 </script>
 </body>
 </html>
