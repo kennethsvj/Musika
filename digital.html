@@ -91,28 +91,28 @@
   /* ============ BONUS POINTS ============ */
   .bonus-panel {
     background: var(--panel); border: 1px solid var(--success);
-    border-radius: 14px; padding: 18px; margin: 14px 0;
-    box-shadow: 0 0 24px rgba(0, 217, 126, 0.15);
+    border-radius: 12px; padding: 12px; margin: 10px 0;
+    box-shadow: 0 0 18px rgba(0, 217, 126, 0.12);
   }
   .bonus-label {
-    text-align: center; font-size: 14px; color: var(--text);
-    margin-bottom: 14px;
+    text-align: center; font-size: 12px; color: var(--muted);
+    margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px;
   }
-  .bonus-label strong { color: var(--accent-2); }
+  .bonus-label strong { color: var(--accent-2); text-transform: none; letter-spacing: 0; }
   .bonus-buttons {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
   }
   .bonus-btn {
     background: linear-gradient(135deg, var(--success), #00b870);
-    border: none; padding: 14px 8px; border-radius: 10px;
+    border: none; padding: 10px 6px; border-radius: 8px;
     color: white; font-family: inherit;
     display: flex; flex-direction: column; align-items: center;
-    gap: 4px; cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0, 217, 126, 0.3);
+    gap: 2px; cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 217, 126, 0.25);
     touch-action: manipulation;
   }
-  .bonus-btn .bonus-amount { font-size: 22px; font-weight: 900; }
-  .bonus-btn .bonus-text { font-size: 11px; font-weight: 600; letter-spacing: 0.5px; opacity: 0.9; }
+  .bonus-btn .bonus-amount { font-size: 18px; font-weight: 900; }
+  .bonus-btn .bonus-text { font-size: 10px; font-weight: 600; letter-spacing: 0.3px; opacity: 0.95; }
   .bonus-skip {
     width: 100%; margin-top: 10px;
     background: transparent; border: 1px solid var(--border); color: var(--muted);
@@ -369,22 +369,21 @@
 
   /* The draggable card-back (vinyl) */
   .card-back-wrap {
-    display: flex; justify-content: center; padding: 8px 0 14px;
-    /* Sticky top so it stays in view as user scrolls timeline */
-    position: sticky; top: 0; z-index: 10;
-    background: linear-gradient(to bottom, var(--bg) 0%, var(--bg) 75%, transparent 100%);
+    display: flex; justify-content: center;
+    padding: 20px 0 24px;
+    margin-bottom: 8px;
   }
   .card-back {
-    width: 140px; height: 180px; border-radius: 14px;
+    width: 240px; height: 300px; border-radius: 18px;
     background: linear-gradient(135deg, #0a0a0f 0%, #1a0a2a 100%);
     border: 2px solid var(--accent);
-    box-shadow: 0 8px 24px rgba(255,56,100,0.3);
+    box-shadow: 0 12px 36px rgba(255,56,100,0.35);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     cursor: grab; user-select: none; -webkit-user-select: none;
-    touch-action: none; /* IMPORTANT: prevents browser pan from stealing the touch */
+    touch-action: none;
     position: relative;
-    will-change: transform; /* GPU layer for smoother dragging */
-    transform: translate3d(0, 0, 0); /* force initial layer */
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
     transition: transform 0.15s ease-out, box-shadow 0.15s, border-color 0.15s;
   }
   .card-back:active { cursor: grabbing; }
@@ -395,7 +394,6 @@
     box-shadow: 0 16px 48px rgba(255,56,100,0.5);
   }
   .card-back.in-cancel-zone {
-    /* Visual hint: when card is back near start, mark it green = "drop here to cancel" */
     border-color: var(--success);
     box-shadow: 0 16px 48px rgba(0, 217, 126, 0.5);
   }
@@ -412,41 +410,83 @@
     from { transform: var(--snap-from, translate3d(0, 0, 0)); }
     to { transform: translate3d(0, 0, 0); }
   }
+  /* Big visible vinyl record on the card-back */
   .vinyl-spinning {
-    width: 90px; height: 90px; border-radius: 50%;
+    width: 200px; height: 200px; border-radius: 50%;
     background: radial-gradient(circle at center,
-      #000 0%, #000 8%,
-      #ff3864 8%, #ff3864 10%,
-      #000 10%, #000 22%,
-      #00d4ff 22%, #00d4ff 24%,
-      #000 24%, #000 38%,
-      #ff3864 38%, #ff3864 40%,
-      #000 40%, #000 52%);
-    animation: vinylRotate 4s linear infinite;
+      #1a1a1a 0%, #1a1a1a 7%,
+      #ff3864 7%, #ff3864 10%,
+      #0a0a0a 10%, #0a0a0a 13%,
+      #1a1a1a 13%, #1a1a1a 22%,
+      #2a2a2a 22%, #2a2a2a 22.5%,
+      #1a1a1a 22.5%, #1a1a1a 32%,
+      #2a2a2a 32%, #2a2a2a 32.5%,
+      #1a1a1a 32.5%, #1a1a1a 42%,
+      #2a2a2a 42%, #2a2a2a 42.5%,
+      #1a1a1a 42.5%, #1a1a1a 52%,
+      #2a2a2a 52%, #2a2a2a 52.5%,
+      #1a1a1a 52.5%, #1a1a1a 62%,
+      #2a2a2a 62%, #2a2a2a 62.5%,
+      #1a1a1a 62.5%, #1a1a1a 72%,
+      #2a2a2a 72%, #2a2a2a 72.5%,
+      #1a1a1a 72.5%, #1a1a1a 100%);
+    animation: vinylRotate 2.5s linear infinite;
     position: relative;
+    box-shadow: 0 0 40px rgba(255, 56, 100, 0.4);
   }
+  /* Center label */
+  .vinyl-spinning::before {
+    content: ''; position: absolute; inset: 50% auto auto 50%;
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 0 2px #0a0a0a;
+  }
+  /* Spindle hole in center */
   .vinyl-spinning::after {
     content: ''; position: absolute; inset: 50% auto auto 50%;
     width: 8px; height: 8px; border-radius: 50%;
-    background: var(--accent-2); transform: translate(-50%, -50%);
+    background: #0a0a0a; transform: translate(-50%, -50%);
+    z-index: 2;
   }
   .card-back-hint {
-    margin-top: 12px; font-size: 11px; font-weight: 700;
+    margin-top: 14px; font-size: 12px; font-weight: 700;
     color: var(--accent); letter-spacing: 1.5px;
     text-transform: uppercase;
   }
 
-  /* The drag-target timeline below the card */
+  /* The drag-target timeline below the card.
+     Outer container scrolls if content is wider; inner uses margin:auto to center
+     when content is narrower. */
   .drag-timeline {
     background: var(--panel); border: 1px solid var(--border);
     border-radius: 14px; padding: 14px 8px; margin-bottom: 14px;
     overflow-x: auto; -webkit-overflow-scrolling: touch;
     scrollbar-width: thin; min-height: 140px;
-    /* Keep dropzones laid out in a single row, scrolling horizontally if needed */
-    display: flex; align-items: center; gap: 0;
   }
+  .drag-timeline-inner {
+    display: flex; align-items: center; gap: 0;
+    width: fit-content; min-width: 100%;
+    margin: 0 auto; /* horizontal center when narrower than container */
+    justify-content: center;
+  }
+  .drag-timeline-inner > * { flex-shrink: 0; }
   .drag-timeline::-webkit-scrollbar { height: 6px; }
   .drag-timeline::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* First-card dropzone — much larger, takes the full timeline width */
+  .drag-timeline .dropzone.first-card-zone {
+    width: 280px; min-height: 110px;
+    border: 2px dashed var(--accent);
+    border-radius: 12px;
+    background: rgba(255, 56, 100, 0.05);
+    margin: 0 8px;
+  }
+  .drag-timeline .dropzone.first-card-zone::before { display: none; }
+  .drag-timeline .dropzone-hint {
+    color: var(--accent); font-size: 12px; font-weight: 700;
+    letter-spacing: 1px; padding: 0 14px; text-align: center; line-height: 1.4;
+  }
 
   .drag-timeline .dropzone {
     flex: 0 0 auto;
@@ -727,7 +767,6 @@
             <span class="bonus-text">Kunstner + album/titel</span>
           </button>
         </div>
-        <button class="bonus-skip" onclick="skipBonus()">Ingen bonus →</button>
       </div>
 
       <!-- Awarded indicator (shown to all after host gives bonus) -->
@@ -736,7 +775,7 @@
       </div>
 
       <div class="auto-next-hint" id="auto-next-hint">
-        Næste tur om <span id="auto-next-countdown">5</span>...
+        Næste tur om <span id="auto-next-countdown">4</span>...
       </div>
     </div>
 
@@ -1639,16 +1678,9 @@ function renderGameUI() {
     document.getElementById('phase-reveal').classList.remove('hidden');
     renderReveal();
     document.body.classList.remove('minimal-screen');
-    // Determine if we should auto-start the countdown.
-    // If placement was correct (not first card) and bonus hasn't been decided,
-    // host needs to choose first — countdown is paused until awardBonus/skipBonus.
-    const placement = STATE.game.pending_placement || {};
-    const needsBonusDecision = placement.was_correct && !placement.first_card && !placement.bonus_decided;
-
-    if (!needsBonusDecision) {
-      if (STATE.isHost) scheduleAutoNextTurn();
-      else scheduleGuestCountdown();
-    }
+    // Always start countdown right away. Host can still award bonus during it.
+    if (STATE.isHost) scheduleAutoNextTurn();
+    else scheduleGuestCountdown();
   } else {
     document.body.classList.remove('minimal-screen');
   }
@@ -1841,34 +1873,30 @@ function renderDragTimeline() {
   const el = document.getElementById('drag-timeline');
   if (!el) return;
 
+  let inner = '';
   if (timeline.length === 0) {
-    // First card — auto-placed; no drag needed. We render a single big "drop here" zone.
-    el.innerHTML = '<div class="dropzone" data-before="" data-after=""></div>'
-                 + '<div class="tl-empty">Dette er dit første kort. Slip det her for at starte din tidslinje.</div>'
-                 + '<div class="dropzone" data-before="" data-after=""></div>';
-    return;
+    // First card — single big "drop here" zone, naturally centered
+    inner = '<div class="dropzone first-card-zone" data-before="" data-after=""><div class="dropzone-hint">Slip kortet her for at starte din tidslinje</div></div>';
+  } else {
+    // Build: [dropzone] [card] [dropzone] [card] ... [dropzone]
+    const firstYear = timeline[0].year;
+    inner += `<div class="dropzone" data-before="" data-after="${firstYear}"></div>`;
+    for (let i = 0; i < timeline.length; i++) {
+      const c = timeline[i];
+      inner += `
+        <div class="tl-card">
+          <div class="tl-year">${c.year}</div>
+          <div class="tl-artist">${escapeHtml(c.artist || '')}</div>
+          <div class="tl-title">${escapeHtml(c.title || '')}</div>
+        </div>
+      `;
+      const nextC = timeline[i + 1];
+      const beforeYear = c.year;
+      const afterYear = nextC ? nextC.year : '';
+      inner += `<div class="dropzone" data-before="${beforeYear}" data-after="${afterYear}"></div>`;
+    }
   }
-
-  // Build: [dropzone] [card] [dropzone] [card] ... [dropzone]
-  let html = '';
-  const firstYear = timeline[0].year;
-  // Leftmost dropzone (= placement before earliest card)
-  html += `<div class="dropzone" data-before="" data-after="${firstYear}"></div>`;
-  for (let i = 0; i < timeline.length; i++) {
-    const c = timeline[i];
-    html += `
-      <div class="tl-card">
-        <div class="tl-year">${c.year}</div>
-        <div class="tl-artist">${escapeHtml(c.artist || '')}</div>
-        <div class="tl-title">${escapeHtml(c.title || '')}</div>
-      </div>
-    `;
-    const nextC = timeline[i + 1];
-    const beforeYear = c.year;
-    const afterYear = nextC ? nextC.year : '';
-    html += `<div class="dropzone" data-before="${beforeYear}" data-after="${afterYear}"></div>`;
-  }
-  el.innerHTML = html;
+  el.innerHTML = `<div class="drag-timeline-inner">${inner}</div>`;
 }
 
 // Drag state
@@ -2173,22 +2201,17 @@ function renderReveal() {
   document.getElementById('reveal-title').textContent = t.title;
 
   // Bonus panel — only for host, only if placement was correct (not first card),
-  // and only if bonus hasn't been decided yet
+  // and only if bonus hasn't been decided yet. Runs alongside countdown.
   const bonusPanel = document.getElementById('bonus-panel');
   const bonusAwarded = document.getElementById('bonus-awarded');
-  const autoNextHint = document.getElementById('auto-next-hint');
 
   if (wasCorrect && !isFirstCard && !bonusDecided && STATE.isHost) {
-    // Show bonus selector to host; pause the auto-next countdown
     bonusPanel.classList.remove('hidden');
     bonusAwarded.classList.add('hidden');
-    autoNextHint.classList.add('hidden');
-    // Show active player's name
     const turnOrder = STATE.game.turn_order || [];
     const activeId = turnOrder[STATE.game.turn_index || 0];
     const activePlayer = STATE.players.find(p => p.id === activeId);
     document.getElementById('bonus-player-name').textContent = activePlayer ? activePlayer.name : 'spilleren';
-    clearAutoNextTimer();
   } else {
     bonusPanel.classList.add('hidden');
 
@@ -2204,7 +2227,6 @@ function renderReveal() {
     } else {
       bonusAwarded.classList.add('hidden');
     }
-    autoNextHint.classList.remove('hidden');
   }
 }
 
@@ -2238,9 +2260,7 @@ async function awardBonus(amount) {
       bonus_points: amount,
     },
   }).eq('id', STATE.game.id);
-
-  // Now resume the countdown to next turn
-  scheduleAutoNextTurn();
+  // Countdown is already running — no need to start it again
 }
 
 async function skipBonus() {
@@ -2255,8 +2275,6 @@ async function skipBonus() {
       bonus_points: 0,
     },
   }).eq('id', STATE.game.id);
-
-  scheduleAutoNextTurn();
 }
 
 // ============================================================
@@ -2271,7 +2289,7 @@ let _autoNextSecondsLeft = 0;
 function scheduleAutoNextTurn() {
   if (!STATE.isHost) return;
   if (_autoNextTimer) return;
-  _autoNextSecondsLeft = 5;
+  _autoNextSecondsLeft = 4;
   updateCountdownDisplay();
   _autoNextTimer = setInterval(() => {
     _autoNextSecondsLeft--;
@@ -2288,7 +2306,7 @@ function scheduleAutoNextTurn() {
 // Host's nextTurn() ends it via realtime broadcast.
 function scheduleGuestCountdown() {
   if (_autoNextTimer) return;
-  _autoNextSecondsLeft = 5;
+  _autoNextSecondsLeft = 4;
   updateCountdownDisplay();
   _autoNextTimer = setInterval(() => {
     _autoNextSecondsLeft--;
