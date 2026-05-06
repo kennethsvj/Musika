@@ -78,6 +78,26 @@
 
   .hidden { display: none !important; }
 
+  /* Auto-next countdown hint */
+  .auto-next-hint {
+    text-align: center; color: var(--muted); font-size: 12px;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    padding: 14px 0;
+  }
+  .auto-next-hint span {
+    color: var(--accent-2); font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+
+  /* ============ MINIMAL SCREEN — used during placement phase ============ */
+  /* Hide everything except the active placement / waiting panel + drag-timeline */
+  body.minimal-screen #turn-banner,
+  body.minimal-screen #my-timeline-panel,
+  body.minimal-screen #other-timelines-panel,
+  body.minimal-screen .panel:has(#game-players),
+  body.minimal-screen .panel:has(button[onclick="quitGame()"]) {
+    display: none !important;
+  }
+
   /* ============ JOIN CODE INPUT ============ */
   .code-input-wrap {
     display: flex; gap: 6px; justify-content: center;
@@ -569,17 +589,12 @@
     <div id="phase-listening" class="hidden">
       <!-- Active player: shows draggable card-back + their personal timeline as drop zones -->
       <div id="active-placement" class="hidden">
-        <div class="placement-instruction">
-          <h2>🎵 Placér kortet i din tidslinje</h2>
-          <p>Træk kortet ned mellem de eksisterende kort, hvor du tror det hører hjemme</p>
-        </div>
         <div class="card-back-wrap">
           <div class="card-back" id="drag-card">
             <div class="vinyl-spinning">
               <div class="vinyl-grooves"></div>
               <div class="vinyl-label"></div>
             </div>
-            <div class="card-back-hint"><span class="hint-text">Hold og træk ↓</span></div>
           </div>
         </div>
         <div class="drag-timeline" id="drag-timeline">
@@ -587,15 +602,11 @@
         </div>
       </div>
 
-      <!-- Other players just see who is placing -->
+      <!-- Other players just see who is placing — minimal screen, just the spinning vinyl -->
       <div id="other-waiting" class="hidden">
         <div class="listening-panel">
           <div class="vinyl"></div>
-          <div class="label">🎵 Lytter</div>
           <div class="player-name-big" id="listening-active"></div>
-          <div style="margin-top:14px; color:var(--muted); font-size:13px;">
-            placerer kortet i sin tidslinje...
-          </div>
         </div>
       </div>
     </div>
@@ -608,13 +619,8 @@
         <div class="artist" id="reveal-artist">—</div>
         <div class="title" id="reveal-title">—</div>
       </div>
-      <div id="host-next-controls" class="hidden">
-        <button onclick="nextTurn()">Næste tur →</button>
-      </div>
-      <div id="player-next-waiting" class="hidden">
-        <p style="text-align:center; color:var(--muted); font-size:13px;">
-          Venter på at host starter næste tur...
-        </p>
+      <div class="auto-next-hint">
+        Næste tur om <span id="auto-next-countdown">5</span>...
       </div>
     </div>
 
@@ -1459,11 +1465,13 @@ function renderGameUI() {
   document.getElementById('turn-player-name').textContent =
     activePlayer ? activePlayer.name : '—';
 
-  // Hide all phases first
+  // Hide all phases first, plus any transient pending UI
   ['phase-draw','phase-waiting','phase-listening','phase-reveal']
     .forEach(id => document.getElementById(id).classList.add('hidden'));
+  hidePlacementPending();
 
   if (phase === 'draw') {
+    clearAutoNextTimer();
     if (isMyTurn) {
       document.getElementById('phase-draw').classList.remove('hidden');
     } else {
@@ -1471,6 +1479,7 @@ function renderGameUI() {
       document.getElementById('waiting-for').textContent = activePlayer ? activePlayer.name : '—';
     }
   } else if (phase === 'listening' || phase === 'placing') {
+    clearAutoNextTimer();
     document.getElementById('phase-listening').classList.remove('hidden');
     if (isMyTurn) {
       document.getElementById('active-placement').classList.remove('hidden');
@@ -1478,24 +1487,24 @@ function renderGameUI() {
       // Build drag timeline + wire up event handlers
       renderDragTimeline();
       setupDragHandlers();
-      // Also hide my-timeline panel during placement (drag-timeline replaces it)
-      document.getElementById('my-timeline-panel').classList.add('hidden');
+      // Hide all noise: my-timeline, other-timelines, turn banner, standings.
+      // Only the spinning vinyl + drag-target timeline should be visible.
+      document.body.classList.add('minimal-screen');
     } else {
       document.getElementById('active-placement').classList.add('hidden');
       document.getElementById('other-waiting').classList.remove('hidden');
       document.getElementById('listening-active').textContent = activePlayer ? activePlayer.name : '—';
-      document.getElementById('my-timeline-panel').classList.remove('hidden');
+      document.body.classList.add('minimal-screen');  // also minimal for waiting players
     }
   } else if (phase === 'reveal') {
     document.getElementById('phase-reveal').classList.remove('hidden');
     renderReveal();
-    document.getElementById('host-next-controls').classList.toggle('hidden', !STATE.isHost);
-    document.getElementById('player-next-waiting').classList.toggle('hidden', STATE.isHost);
-    // Show my-timeline panel again
-    document.getElementById('my-timeline-panel').classList.remove('hidden');
+    document.body.classList.remove('minimal-screen');
+    // Both host and guests show countdown. Host actually triggers nextTurn.
+    if (STATE.isHost) scheduleAutoNextTurn();
+    else scheduleGuestCountdown();
   } else {
-    // draw or other — make sure my-timeline panel is shown
-    document.getElementById('my-timeline-panel').classList.remove('hidden');
+    document.body.classList.remove('minimal-screen');
   }
 
   renderGamePlayers();
@@ -1524,7 +1533,7 @@ function renderGamePlayers() {
 // ============================================================
 // TIMELINE RENDERING
 // ============================================================
-let _lastMyTimelineLength = 0;  // for "just-added" animation
+let _lastMyTimelineIds = new Set();  // track which cards we've seen, to detect new ones
 
 function renderTimelines() {
   const me = STATE.players.find(p => p.id === STATE.myPlayerId);
@@ -1538,13 +1547,19 @@ function renderTimelines() {
   if (myEl) {
     if (myTimeline.length === 0) {
       myEl.innerHTML = '<div class="timeline-empty">Ingen kort endnu — gæt rigtigt for at føje til din tidslinje</div>';
+      _lastMyTimelineIds = new Set();
     } else {
-      // Animate the newest card if our timeline grew this render
-      const grew = myTimeline.length > _lastMyTimelineLength;
+      // Find which card is new (not in our previous render).
+      // This is the actual just-placed card, regardless of where it slots in chronologically.
+      const currentIds = new Set(myTimeline.map(c => c.track_id));
+      const newCards = myTimeline.filter(c => !_lastMyTimelineIds.has(c.track_id));
+      const newId = newCards.length === 1 ? newCards[0].track_id : null;
+      const newIndex = newId ? myTimeline.findIndex(c => c.track_id === newId) : -1;
+
       myEl.innerHTML = myTimeline.map((c, i) => {
-        const isNewest = grew && i === myTimeline.length - 1;
+        const isNew = c.track_id === newId;
         return `
-          <div class="timeline-card${isNewest ? ' just-added' : ''}">
+          <div class="timeline-card${isNew ? ' just-added' : ''}">
             <div class="tc-year">${c.year}</div>
             <div class="tc-artist">${escapeHtml(c.artist || '')}</div>
             <div class="tc-title">${escapeHtml(c.title || '')}</div>
@@ -1552,12 +1567,18 @@ function renderTimelines() {
         `;
       }).join('');
 
-      // Auto-scroll to the newest card if we just got one
-      if (grew) {
-        setTimeout(() => { myEl.scrollLeft = myEl.scrollWidth; }, 50);
+      // Scroll the just-placed card into view
+      if (newIndex >= 0) {
+        setTimeout(() => {
+          const cards = myEl.querySelectorAll('.timeline-card');
+          const target = cards[newIndex];
+          if (target && target.scrollIntoView) {
+            target.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+          }
+        }, 80);
       }
+      _lastMyTimelineIds = currentIds;
     }
-    _lastMyTimelineLength = myTimeline.length;
   }
 
   // ---- Others' timelines (compact year chips) ----
@@ -1860,14 +1881,42 @@ async function onDragEnd(e) {
     return;
   }
 
-  // Submit placement!
+  // Read placement bounds before we hide the UI
   const beforeAttr = zone.getAttribute('data-before');
   const afterAttr = zone.getAttribute('data-after');
   const beforeYear = beforeAttr ? parseInt(beforeAttr, 10) : null;
   const afterYear = afterAttr ? parseInt(afterAttr, 10) : null;
 
-  card.style.transform = 'translate3d(0, 0, 0)';
+  // INSTANT FEEDBACK: hide the active-placement immediately so user knows
+  // the drop registered. The realtime broadcast will then show reveal.
+  document.getElementById('active-placement').classList.add('hidden');
+  // Show a quick "venter på resultat..." while we wait for host to compute
+  showPlacementPending();
+
   await submitPlacement(beforeYear, afterYear);
+}
+
+function showPlacementPending() {
+  // Replace the active-placement area with a brief "vurderes..." message
+  const container = document.getElementById('phase-listening');
+  if (!container) return;
+  let pending = document.getElementById('placement-pending');
+  if (!pending) {
+    pending = document.createElement('div');
+    pending.id = 'placement-pending';
+    pending.className = 'listening-panel';
+    pending.innerHTML = `
+      <div class="vinyl"></div>
+      <div class="player-name-big" style="font-size:18px;">Vurderer placering...</div>
+    `;
+    container.appendChild(pending);
+  }
+  pending.classList.remove('hidden');
+}
+
+function hidePlacementPending() {
+  const pending = document.getElementById('placement-pending');
+  if (pending) pending.remove();
 }
 
 // Calculate if placement is correct, persist results, advance phase to reveal
@@ -1979,11 +2028,61 @@ function renderReveal() {
 // ============================================================
 // NEXT TURN (host only)
 // ============================================================
+// Auto-advance the game after the reveal screen has been visible for a few seconds.
+// Only the host runs the timer (single source of truth); all clients see the
+// countdown via the local state set when they enter reveal phase.
+let _autoNextTimer = null;
+let _autoNextSecondsLeft = 0;
+
+function scheduleAutoNextTurn() {
+  if (!STATE.isHost) return;
+  if (_autoNextTimer) return;
+  _autoNextSecondsLeft = 5;
+  updateCountdownDisplay();
+  _autoNextTimer = setInterval(() => {
+    _autoNextSecondsLeft--;
+    updateCountdownDisplay();
+    if (_autoNextSecondsLeft <= 0) {
+      clearInterval(_autoNextTimer);
+      _autoNextTimer = null;
+      nextTurn();
+    }
+  }, 1000);
+}
+
+// Guests also show the same countdown — purely cosmetic.
+// Host's nextTurn() ends it via realtime broadcast.
+function scheduleGuestCountdown() {
+  if (_autoNextTimer) return;
+  _autoNextSecondsLeft = 5;
+  updateCountdownDisplay();
+  _autoNextTimer = setInterval(() => {
+    _autoNextSecondsLeft--;
+    updateCountdownDisplay();
+    if (_autoNextSecondsLeft <= 0) {
+      clearInterval(_autoNextTimer);
+      _autoNextTimer = null;
+    }
+  }, 1000);
+}
+
+function clearAutoNextTimer() {
+  if (_autoNextTimer) {
+    clearInterval(_autoNextTimer);
+    _autoNextTimer = null;
+  }
+}
+
+function updateCountdownDisplay() {
+  const el = document.getElementById('auto-next-countdown');
+  if (el) el.textContent = _autoNextSecondsLeft;
+}
+
 async function nextTurn() {
   if (!STATE.isHost) return;
+  clearAutoNextTimer();
 
   // Optimistic UI: hide the reveal phase immediately so user gets instant feedback.
-  // The realtime broadcast will then re-render with the next turn's draw phase.
   const revealPhase = document.getElementById('phase-reveal');
   if (revealPhase) revealPhase.classList.add('hidden');
 
