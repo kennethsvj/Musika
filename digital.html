@@ -62,14 +62,16 @@
   }
   input:focus, select:focus { border-color: var(--accent-2); }
 
+  button, .bonus-btn, .next-btn, .draw-btn {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
   button {
     width: 100%; background: var(--accent); color: white;
     border: none; padding: 14px; border-radius: 10px; font-size: 15px;
     font-weight: 700; cursor: pointer; font-family: inherit;
     box-shadow: 0 2px 8px rgba(255,56,100,0.2);
-    /* Disable iOS double-tap-to-zoom delay; makes buttons respond immediately */
-    touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
   }
   button:active { transform: scale(0.98); }
   button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
@@ -391,15 +393,21 @@
     touch-action: none;
     position: relative;
     will-change: transform;
+    /* Origin: top-center so the card shrinks from the bottom up,
+       making it feel like it's lifting up toward your finger */
+    transform-origin: 50% 30%;
     transform: translate3d(0, 0, 0);
-    transition: transform 0.15s ease-out, box-shadow 0.15s, border-color 0.15s;
+    transition: transform 0.18s ease-out, box-shadow 0.18s, border-color 0.18s, opacity 0.18s;
   }
   .card-back:active { cursor: grabbing; }
   .card-back.dragging {
     cursor: grabbing;
+    /* No transition during drag — direct transform for smoothness */
     transition: none;
     z-index: 1000;
     box-shadow: 0 16px 48px rgba(255,56,100,0.5);
+    /* Make slightly translucent so timeline shows through faintly */
+    opacity: 0.92;
   }
   .card-back.in-cancel-zone {
     border-color: var(--success);
@@ -415,8 +423,8 @@
     animation: snapBack 0.25s ease-out;
   }
   @keyframes snapBack {
-    from { transform: var(--snap-from, translate3d(0, 0, 0)); }
-    to { transform: translate3d(0, 0, 0); }
+    from { transform: scale(0.45); }
+    to { transform: translate3d(0, 0, 0) scale(1); }
   }
   /* Big visible vinyl record on the card-back */
   .vinyl-spinning {
@@ -1699,7 +1707,9 @@ function renderGameUI() {
     renderReveal();
     document.body.classList.remove('minimal-screen');
     // Show Next button for host, waiting message for guests
-    document.getElementById('next-turn-btn').classList.toggle('hidden', !STATE.isHost);
+    const nextBtn = document.getElementById('next-turn-btn');
+    nextBtn.classList.toggle('hidden', !STATE.isHost);
+    nextBtn.disabled = false;  // re-enable in case it was disabled by previous click
     document.getElementById('waiting-for-host').classList.toggle('hidden', STATE.isHost);
   } else {
     document.body.classList.remove('minimal-screen');
@@ -1976,7 +1986,9 @@ function processDragFrame() {
   const y = _drag.lastClientY;
   const dx = x - _drag.startX;
   const dy = y - _drag.startY;
-  _drag.cardEl.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
+  // Scale 0.45 = card becomes ~108×135px while dragging — small enough to see the
+  // timeline underneath, but still recognizable as the card you're holding.
+  _drag.cardEl.style.transform = `translate3d(${dx}px, ${dy}px, 0) scale(0.45)`;
 
   // Cancel zone: if the user drags back near the starting point (within 80px),
   // we treat it as "wants to cancel" — no dropzone is highlighted. This makes
@@ -2261,18 +2273,28 @@ async function awardBonus(amount) {
   if (!placement.was_correct || placement.first_card) return;
   if (placement.bonus_decided) return; // already done
 
+  // INSTANT FEEDBACK: hide bonus panel and show awarded message immediately,
+  // before waiting for the database round-trip. Realtime broadcast will catch up.
+  const bonusPanel = document.getElementById('bonus-panel');
+  const bonusAwarded = document.getElementById('bonus-awarded');
+  if (bonusPanel) bonusPanel.classList.add('hidden');
+
   const turnOrder = STATE.game.turn_order || [];
   const activeId = turnOrder[STATE.game.turn_index || 0];
   const activePlayer = STATE.players.find(p => p.id === activeId);
   if (!activePlayer) return;
 
-  // Increment player's score by the bonus amount.
-  // Note: score = timeline.length + bonus_points. We track bonuses in score directly.
+  if (bonusAwarded) {
+    bonusAwarded.classList.remove('hidden');
+    document.getElementById('bonus-awarded-text').textContent =
+      `${activePlayer.name} fik +${amount} bonuspoint`;
+  }
+
+  // Now do the actual database updates (user already sees the feedback)
   await supa.from('players').update({
     score: (activePlayer.score || 0) + amount,
   }).eq('id', activePlayer.id);
 
-  // Mark bonus on placement so other clients can show it
   await supa.from('games').update({
     pending_placement: {
       ...placement,
@@ -2280,7 +2302,6 @@ async function awardBonus(amount) {
       bonus_points: amount,
     },
   }).eq('id', STATE.game.id);
-  // Countdown is already running — no need to start it again
 }
 
 async function skipBonus() {
@@ -2303,12 +2324,19 @@ async function skipBonus() {
 async function nextTurn() {
   if (!STATE.isHost) return;
 
+  // Disable the button to prevent double-clicks
+  const btn = document.getElementById('next-turn-btn');
+  if (btn) btn.disabled = true;
+
   // Optimistic UI: hide the reveal phase immediately so user gets instant feedback.
   const revealPhase = document.getElementById('phase-reveal');
   if (revealPhase) revealPhase.classList.add('hidden');
 
   const turnOrder = STATE.game.turn_order || [];
-  if (turnOrder.length === 0) return;
+  if (turnOrder.length === 0) {
+    if (btn) btn.disabled = false;
+    return;
+  }
   const newIdx = (STATE.game.turn_index + 1) % turnOrder.length;
 
   // Check win condition
@@ -2323,6 +2351,7 @@ async function nextTurn() {
     current_track: null,
     pending_placement: null,
   }).eq('id', STATE.game.id);
+  // Button gets re-enabled when phase changes (it'll be re-rendered fresh)
 }
 
 async function endGame() {
