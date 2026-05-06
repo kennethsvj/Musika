@@ -78,14 +78,22 @@
 
   .hidden { display: none !important; }
 
-  /* Auto-next countdown hint */
-  .auto-next-hint {
+  /* Reveal controls — Next button for host, waiting message for guests */
+  .reveal-controls { padding: 14px 0; }
+  .next-btn {
+    width: 100%;
+    background: linear-gradient(135deg, var(--accent-2), #00a8d4);
+    color: white; border: none; padding: 16px;
+    border-radius: 10px; font-size: 16px; font-weight: 800;
+    letter-spacing: 1px; cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0, 212, 255, 0.3);
+    touch-action: manipulation;
+  }
+  .next-btn:active { transform: scale(0.98); }
+  .waiting-host {
     text-align: center; color: var(--muted); font-size: 12px;
     letter-spacing: 1.5px; text-transform: uppercase;
     padding: 14px 0;
-  }
-  .auto-next-hint span {
-    color: var(--accent-2); font-weight: 700; font-variant-numeric: tabular-nums;
   }
 
   /* ============ BONUS POINTS ============ */
@@ -774,8 +782,14 @@
         🎁 <span id="bonus-awarded-text"></span>
       </div>
 
-      <div class="auto-next-hint" id="auto-next-hint">
-        Næste tur om <span id="auto-next-countdown">4</span>...
+      <!-- Reveal control: host has Next button, guests just wait -->
+      <div class="reveal-controls">
+        <button id="next-turn-btn" class="next-btn hidden" onclick="nextTurn()">
+          Næste tur →
+        </button>
+        <div id="waiting-for-host" class="waiting-host hidden">
+          Venter på at host fortsætter...
+        </div>
       </div>
     </div>
 
@@ -1649,7 +1663,6 @@ function renderGameUI() {
   hidePlacementPending();
 
   if (phase === 'draw') {
-    clearAutoNextTimer();
     if (isMyTurn) {
       document.getElementById('phase-draw').classList.remove('hidden');
     } else {
@@ -1657,17 +1670,24 @@ function renderGameUI() {
       document.getElementById('waiting-for').textContent = activePlayer ? activePlayer.name : '—';
     }
   } else if (phase === 'listening' || phase === 'placing') {
-    clearAutoNextTimer();
     document.getElementById('phase-listening').classList.remove('hidden');
     if (isMyTurn) {
       document.getElementById('active-placement').classList.remove('hidden');
       document.getElementById('other-waiting').classList.add('hidden');
+      // Reset the drag-card to its original position (in case stale transforms linger
+      // from a previous turn's snap-back or drag)
+      const dragCard = document.getElementById('drag-card');
+      if (dragCard) {
+        dragCard.style.transform = 'translate3d(0, 0, 0)';
+        dragCard.classList.remove('dragging', 'snap-back', 'in-cancel-zone');
+      }
       // Build drag timeline + wire up event handlers
       renderDragTimeline();
       setupDragHandlers();
       // Hide all noise: my-timeline, other-timelines, turn banner, standings.
-      // Only the spinning vinyl + drag-target timeline should be visible.
       document.body.classList.add('minimal-screen');
+      // Scroll to top so the card is at the top of the visible viewport
+      window.scrollTo({ top: 0, behavior: 'instant' });
     } else {
       document.getElementById('active-placement').classList.add('hidden');
       document.getElementById('other-waiting').classList.remove('hidden');
@@ -1678,9 +1698,9 @@ function renderGameUI() {
     document.getElementById('phase-reveal').classList.remove('hidden');
     renderReveal();
     document.body.classList.remove('minimal-screen');
-    // Always start countdown right away. Host can still award bonus during it.
-    if (STATE.isHost) scheduleAutoNextTurn();
-    else scheduleGuestCountdown();
+    // Show Next button for host, waiting message for guests
+    document.getElementById('next-turn-btn').classList.toggle('hidden', !STATE.isHost);
+    document.getElementById('waiting-for-host').classList.toggle('hidden', STATE.isHost);
   } else {
     document.body.classList.remove('minimal-screen');
   }
@@ -2278,61 +2298,10 @@ async function skipBonus() {
 }
 
 // ============================================================
-// NEXT TURN (host only)
+// NEXT TURN (host only) — manual progression, no auto-countdown
 // ============================================================
-// Auto-advance the game after the reveal screen has been visible for a few seconds.
-// Only the host runs the timer (single source of truth); all clients see the
-// countdown via the local state set when they enter reveal phase.
-let _autoNextTimer = null;
-let _autoNextSecondsLeft = 0;
-
-function scheduleAutoNextTurn() {
-  if (!STATE.isHost) return;
-  if (_autoNextTimer) return;
-  _autoNextSecondsLeft = 4;
-  updateCountdownDisplay();
-  _autoNextTimer = setInterval(() => {
-    _autoNextSecondsLeft--;
-    updateCountdownDisplay();
-    if (_autoNextSecondsLeft <= 0) {
-      clearInterval(_autoNextTimer);
-      _autoNextTimer = null;
-      nextTurn();
-    }
-  }, 1000);
-}
-
-// Guests also show the same countdown — purely cosmetic.
-// Host's nextTurn() ends it via realtime broadcast.
-function scheduleGuestCountdown() {
-  if (_autoNextTimer) return;
-  _autoNextSecondsLeft = 4;
-  updateCountdownDisplay();
-  _autoNextTimer = setInterval(() => {
-    _autoNextSecondsLeft--;
-    updateCountdownDisplay();
-    if (_autoNextSecondsLeft <= 0) {
-      clearInterval(_autoNextTimer);
-      _autoNextTimer = null;
-    }
-  }, 1000);
-}
-
-function clearAutoNextTimer() {
-  if (_autoNextTimer) {
-    clearInterval(_autoNextTimer);
-    _autoNextTimer = null;
-  }
-}
-
-function updateCountdownDisplay() {
-  const el = document.getElementById('auto-next-countdown');
-  if (el) el.textContent = _autoNextSecondsLeft;
-}
-
 async function nextTurn() {
   if (!STATE.isHost) return;
-  clearAutoNextTimer();
 
   // Optimistic UI: hide the reveal phase immediately so user gets instant feedback.
   const revealPhase = document.getElementById('phase-reveal');
