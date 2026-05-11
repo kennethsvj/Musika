@@ -190,6 +190,12 @@
   .player-row.is-host::after { content: '🎵'; }
   .player-name { font-weight: 600; }
   .player-meta { color: var(--muted); font-size: 12px; }
+  .player-meta .bonus-tag {
+    color: var(--success); font-weight: 700;
+    background: rgba(0, 217, 126, 0.15);
+    padding: 1px 6px; border-radius: 8px;
+    margin-left: 4px;
+  }
 
   /* ============ MY TIMELINE (large, scrollable horizontally) ============ */
   .timeline-scroll {
@@ -497,6 +503,12 @@
     border-radius: 12px;
     background: rgba(255, 56, 100, 0.05);
     margin: 0 8px;
+    transition: all 0.15s;
+  }
+  .drag-timeline .dropzone.first-card-zone.hover {
+    background: rgba(255, 56, 100, 0.18);
+    box-shadow: 0 0 28px rgba(255, 56, 100, 0.4);
+    transform: scale(1.04);
   }
   .drag-timeline .dropzone.first-card-zone::before { display: none; }
   .drag-timeline .dropzone-hint {
@@ -606,6 +618,63 @@
   .reveal-card .title { color: var(--muted); font-size: 14px; font-style: italic; margin-top: 4px; }
 
   /* ============ TOAST ============ */
+  /* ============ WINNER SCREEN ============ */
+  #winner-screen {
+    text-align: center;
+    padding: 40px 0 0;
+  }
+  .winner-trophy {
+    font-size: 90px;
+    animation: trophyBounce 1.2s ease-out;
+    margin-bottom: 8px;
+  }
+  @keyframes trophyBounce {
+    0% { transform: scale(0) rotate(-180deg); opacity: 0; }
+    60% { transform: scale(1.3) rotate(20deg); }
+    80% { transform: scale(0.9) rotate(-10deg); }
+    100% { transform: scale(1) rotate(0); opacity: 1; }
+  }
+  .winner-label {
+    font-size: 14px; letter-spacing: 4px; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 8px;
+  }
+  .winner-name {
+    font-size: 36px; font-weight: 900;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 6px;
+  }
+  .winner-meta { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+  .final-row {
+    background: var(--panel-light); padding: 10px 14px;
+    border-radius: 8px; display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px;
+  }
+  .final-row.is-winner {
+    background: linear-gradient(135deg, rgba(255,56,100,0.2), rgba(0,212,255,0.15));
+    border: 1px solid var(--accent);
+  }
+  .final-row .rank { color: var(--muted); font-size: 13px; margin-right: 8px; font-weight: 700; }
+  .final-row .name { font-weight: 700; flex: 1; text-align: left; }
+  .final-row .score { color: var(--accent-2); font-weight: 800; font-variant-numeric: tabular-nums; }
+
+  /* Confetti */
+  #confetti-container {
+    position: fixed; inset: 0; pointer-events: none; z-index: 5000;
+    overflow: hidden;
+  }
+  .confetti-piece {
+    position: absolute; top: -20px;
+    width: 10px; height: 14px;
+    opacity: 0;
+    animation: confettiFall linear forwards;
+  }
+  @keyframes confettiFall {
+    0% { transform: translateY(0) rotate(0); opacity: 1; }
+    100% { transform: translateY(110vh) rotate(720deg); opacity: 0.6; }
+  }
+
   .toast {
     position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-200%);
     background: var(--panel); border: 1px solid var(--border);
@@ -826,8 +895,26 @@
     </div>
   </div>
 
+  <!-- ============ WINNER / END SCREEN ============ -->
+  <div id="winner-screen" class="hidden">
+    <div class="winner-trophy">🏆</div>
+    <div class="winner-label">VINDER</div>
+    <div class="winner-name" id="winner-name">—</div>
+    <div class="winner-meta" id="winner-stats">—</div>
+
+    <div class="panel">
+      <h2 style="font-size:14px; margin-bottom:10px;">Slutstilling</h2>
+      <div id="final-standings"></div>
+    </div>
+
+    <button onclick="returnToStart()" style="margin-top:14px;">
+      Nyt spil
+    </button>
+  </div>
+
 </div>
 
+<div id="confetti-container"></div>
 <div id="toast" class="toast"></div>
 
 <script>
@@ -1142,6 +1229,9 @@ async function maybePlayMusicForCurrentTrack() {
   if (lastPlayedTrackId === track.spotify_id) return;
   lastPlayedTrackId = track.spotify_id;
 
+  // Audio cue: 3-tone beep before the song starts (~750ms)
+  await playCardCue();
+
   const token = await getValidSpotifyToken();
   if (!token) { toast('Ingen Spotify-forbindelse', 'error'); return; }
 
@@ -1197,8 +1287,69 @@ async function stopMusicIfPlaying() {
 // SCREEN MANAGEMENT
 // ============================================================
 function show(id) {
-  ['start-screen','create-screen','lobby-screen','game-screen']
+  ['start-screen','create-screen','lobby-screen','game-screen','winner-screen']
     .forEach(s => document.getElementById(s).classList.toggle('hidden', s !== id));
+}
+
+// ============================================================
+// WINNER SCREEN
+// ============================================================
+function showWinnerScreen() {
+  show('winner-screen');
+  releaseWakeLock();
+
+  const totalScore = (p) => (p.score || 0) + (p.bonus_score || 0);
+  const sorted = [...STATE.players].sort((a, b) => totalScore(b) - totalScore(a));
+  const winner = sorted[0];
+
+  if (winner) {
+    document.getElementById('winner-name').textContent = winner.name;
+    const cards = winner.score || 0;
+    const bonus = winner.bonus_score || 0;
+    document.getElementById('winner-stats').textContent =
+      bonus > 0 ? `${cards} kort + ${bonus} bonuspoint` : `${cards} kort`;
+  }
+
+  const standings = document.getElementById('final-standings');
+  standings.innerHTML = sorted.map((p, i) => {
+    const cards = p.score || 0;
+    const bonus = p.bonus_score || 0;
+    const total = cards + bonus;
+    const meta = bonus > 0 ? `${cards} + ${bonus}` : `${cards}`;
+    const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+    return `<div class="final-row${i === 0 ? ' is-winner' : ''}">
+      <span class="rank">${rankIcon}</span>
+      <span class="name">${escapeHtml(p.name)}</span>
+      <span class="score">${total} pt${meta !== `${total}` ? ` <span style="color:var(--muted); font-weight:500;">(${meta})</span>` : ''}</span>
+    </div>`;
+  }).join('');
+
+  // Trigger confetti for everyone (purely visual)
+  triggerConfetti();
+}
+
+function triggerConfetti() {
+  const container = document.getElementById('confetti-container');
+  if (!container) return;
+  container.innerHTML = ''; // clear any previous
+  const colors = ['#ff3864', '#00d4ff', '#ffd700', '#00d97e', '#ff9500'];
+  for (let i = 0; i < 80; i++) {
+    const piece = document.createElement('div');
+    piece.className = 'confetti-piece';
+    piece.style.left = Math.random() * 100 + '%';
+    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+    piece.style.animationDuration = (2.5 + Math.random() * 2) + 's';
+    piece.style.animationDelay = Math.random() * 0.6 + 's';
+    piece.style.transform = `rotate(${Math.random() * 360}deg)`;
+    container.appendChild(piece);
+  }
+  // Clean up after animation
+  setTimeout(() => { container.innerHTML = ''; }, 6000);
+}
+
+function returnToStart() {
+  clearSession();
+  location.reload();
 }
 
 // ============================================================
@@ -1520,8 +1671,7 @@ async function onGameUpdate(payload) {
     if (oldStatus === 'lobby' && STATE.game.status === 'playing') {
       enterGame();
     } else if (STATE.game.status === 'finished') {
-      toast('Spillet er slut', 'success');
-      setTimeout(() => { clearSession(); location.reload(); }, 2000);
+      showWinnerScreen();
       return;
     }
 
@@ -1618,6 +1768,46 @@ async function startDigitalGame() {
     music_host_player_id: musicHostPlayerId,
   }).eq('id', STATE.game.id);
   if (error) toast(error.message, 'error');
+}
+
+// ============================================================
+// AUDIO CUES — Web Audio API beeps before card music starts
+// ============================================================
+let _audioCtx = null;
+function ensureAudio() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e) { return null; }
+  }
+  if (_audioCtx.state === 'suspended') _audioCtx.resume().catch(() => {});
+  return _audioCtx;
+}
+function beep(frequency = 800, durationMs = 150, volume = 0.45) {
+  const ctx = ensureAudio();
+  if (!ctx) return;
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = frequency;
+    osc.type = 'sine';
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.01);
+    gain.gain.setValueAtTime(volume, now + durationMs / 1000 - 0.03);
+    gain.gain.linearRampToValueAtTime(0, now + durationMs / 1000);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + durationMs / 1000 + 0.02);
+  } catch (e) {}
+}
+// 3-tone "beep beep BEEEP" cue (~750ms total)
+async function playCardCue() {
+  beep(700, 130, 0.4);
+  await new Promise(r => setTimeout(r, 220));
+  beep(700, 130, 0.4);
+  await new Promise(r => setTimeout(r, 220));
+  beep(1200, 220, 0.5);
+  await new Promise(r => setTimeout(r, 280));
 }
 
 // ============================================================
@@ -1725,14 +1915,22 @@ function renderGamePlayers() {
   const turnIdx = STATE.game?.turn_index || 0;
   const activeId = turnOrder[turnIdx];
 
-  // Sort by score desc
-  const sorted = [...STATE.players].sort((a, b) => b.score - a.score);
-  el.innerHTML = sorted.map(p => `
-    <div class="player-row${p.id === STATE.myPlayerId ? ' is-me' : ''}${p.id === activeId ? ' is-active' : ''}">
-      <span class="player-name">${p.id === activeId ? '▶ ' : ''}${escapeHtml(p.name)}</span>
-      <span class="player-meta">${p.score} kort</span>
-    </div>
-  `).join('');
+  // Total score = cards + bonus. Sort by total.
+  const totalScore = (p) => (p.score || 0) + (p.bonus_score || 0);
+  const sorted = [...STATE.players].sort((a, b) => totalScore(b) - totalScore(a));
+  el.innerHTML = sorted.map(p => {
+    const cards = p.score || 0;
+    const bonus = p.bonus_score || 0;
+    const meta = bonus > 0
+      ? `${cards} kort · <span class="bonus-tag">+${bonus} bonus</span>`
+      : `${cards} kort`;
+    return `
+      <div class="player-row${p.id === STATE.myPlayerId ? ' is-me' : ''}${p.id === activeId ? ' is-active' : ''}">
+        <span class="player-name">${p.id === activeId ? '▶ ' : ''}${escapeHtml(p.name)}</span>
+        <span class="player-meta">${meta}</span>
+      </div>
+    `;
+  }).join('');
 
   // Also render timelines whenever players change
   renderTimelines();
@@ -2031,10 +2229,13 @@ function processDragFrame() {
     }
     if (nearest) {
       nearest.classList.add('hover');
-      const outline = document.createElement('div');
-      outline.className = 'drop-outline';
-      outline.innerHTML = '<div class="drop-outline-inner">⬇<br>HER</div>';
-      nearest.appendChild(outline);
+      // first-card-zone already has its own visible hint — don't add overlap
+      if (!nearest.classList.contains('first-card-zone')) {
+        const outline = document.createElement('div');
+        outline.className = 'drop-outline';
+        outline.innerHTML = '<div class="drop-outline-inner">⬇<br>HER</div>';
+        nearest.appendChild(outline);
+      }
     }
     _drag.hoveredZone = nearest;
   }
@@ -2216,13 +2417,19 @@ function renderReveal() {
   const bonus = placement.bonus_points || 0;
   const bonusDecided = placement.bonus_decided === true;
 
+  // Find the player who placed
+  const turnOrder = STATE.game.turn_order || [];
+  const activeId = turnOrder[STATE.game.turn_index || 0];
+  const activePlayer = STATE.players.find(p => p.id === activeId);
+  const placerName = activePlayer ? activePlayer.name : 'spilleren';
+
   if (wasCorrect === true) {
     card.className = 'reveal-card correct';
     document.getElementById('reveal-verdict').textContent =
-      isFirstCard ? '★ FØRSTE KORT' : '✓ KORREKT';
+      isFirstCard ? `★ ${placerName.toUpperCase()} STARTEDE TIDSLINJEN` : `✓ ${placerName.toUpperCase()} GÆTTEDE RIGTIGT`;
   } else if (wasCorrect === false) {
     card.className = 'reveal-card incorrect';
-    document.getElementById('reveal-verdict').textContent = '✗ FORKERT';
+    document.getElementById('reveal-verdict').textContent = `✗ ${placerName.toUpperCase()} GÆTTEDE FORKERT`;
   } else {
     card.className = 'reveal-card';
     document.getElementById('reveal-verdict').textContent = 'RESULTAT';
@@ -2292,7 +2499,7 @@ async function awardBonus(amount) {
 
   // Now do the actual database updates (user already sees the feedback)
   await supa.from('players').update({
-    score: (activePlayer.score || 0) + amount,
+    bonus_score: (activePlayer.bonus_score || 0) + amount,
   }).eq('id', activePlayer.id);
 
   await supa.from('games').update({
@@ -2339,8 +2546,9 @@ async function nextTurn() {
   }
   const newIdx = (STATE.game.turn_index + 1) % turnOrder.length;
 
-  // Check win condition
-  const winner = STATE.players.find(p => p.score >= (STATE.game.win_points || 10));
+  // Win condition: 10 cards in timeline (bonus doesn't count toward winning,
+  // just toward final ranking among tied players)
+  const winner = STATE.players.find(p => (p.score || 0) >= (STATE.game.win_points || 10));
   if (winner) {
     return endGame();
   }
